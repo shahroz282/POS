@@ -1,6 +1,10 @@
 node_modules
 dist-electron
 release
+out
+crash.log
+electron_out.txt
+*.mjs
 *.db
 *.db-shm
 *.db-wal
