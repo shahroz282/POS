@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import type Database from 'better-sqlite3'
+import type { DB } from './db'
 
 /**
  * ARCHITECTURE.md §Database — "Migrations are numbered SQL files applied in order
@@ -29,7 +29,7 @@ function getMigrationsDir(): string {
  * skips those already recorded in schema_migrations, and applies the rest
  * inside a transaction.
  */
-export function runMigrations(db: Database.Database): void {
+export function runMigrations(db: DB): void {
   const migrationsDir = getMigrationsDir()
 
   const files = fs

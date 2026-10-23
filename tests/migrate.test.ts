@@ -1,18 +1,45 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
+import BetterSqlite3 from 'better-sqlite3'
 import path from 'path'
 import { runMigrations } from '../src/main/db/migrate'
+import type { DB } from '../src/main/db/db'
 
 // Point the migration runner at the project-root migrations folder
 process.env.MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations')
 
+/**
+ * Wrap a better-sqlite3 instance in our DB interface.
+ * better-sqlite3 runs under Node.js 24 in Vitest and works fine.
+ * Electron 31 uses sql.js instead (ABI mismatch with better-sqlite3 v13).
+ */
+function wrapBetterSqlite3(raw: BetterSqlite3.Database): DB {
+  return {
+    exec: (sql) => { raw.exec(sql) },
+    prepare: (sql) => {
+      const stmt = raw.prepare(sql)
+      return {
+        get: (...params) => stmt.get(...params) as Record<string, unknown> | undefined,
+        all: (...params) => stmt.all(...params) as Record<string, unknown>[],
+        run: (...params) => {
+          const r = stmt.run(...params)
+          return { changes: r.changes, lastInsertRowid: r.lastInsertRowid }
+        }
+      }
+    },
+    pragma: (clause) => { raw.pragma(clause) },
+    transaction: (fn) => raw.transaction(fn) as () => ReturnType<typeof fn>,
+    close: () => raw.close()
+  }
+}
+
 describe('runMigrations', () => {
-  let db: Database.Database
+  let db: DB
 
   beforeEach(() => {
-    db = new Database(':memory:')
-    db.pragma('foreign_keys = ON')
-    db.pragma('journal_mode = WAL')
+    const raw = new BetterSqlite3(':memory:')
+    raw.pragma('foreign_keys = ON')
+    raw.pragma('journal_mode = WAL')
+    db = wrapBetterSqlite3(raw)
   })
 
   it('applies 001_init.sql and records it in schema_migrations', () => {
