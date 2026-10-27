@@ -7,6 +7,7 @@ import type { DB } from '../src/main/db/db'
 import { runMigrations } from '../src/main/db/migrate'
 import { StampPaperService } from '../src/main/services/stamp-paper.service'
 import { setCurrentUser } from '../src/main/services/session'
+import { SimpleStampSaleCreateSchema } from '../src/shared/schemas'
 
 function wrapDatabase(raw: BetterSqlite3.Database): DB {
   return {
@@ -161,5 +162,90 @@ describe('StampPaperService', () => {
     expect(encryptedService.readDocument(sale.id, document.id, userId).contentBase64).toBe(png.toString('base64'))
     expect(() => encryptedService.readDocument(sale.id + 1, document.id, userId)).toThrow('Document not found')
     expect(path.basename(record.relative_storage_path)).not.toContain('private')
+  })
+
+  it('creates simplified stamp transactions with multiple attachments and later payments', () => {
+    const simpleService = new StampPaperService(db, root, {
+      encrypt: (bytes) => Buffer.from(bytes.map((byte) => byte ^ 0xff)),
+      decrypt: (bytes) => Buffer.from(bytes.map((byte) => byte ^ 0xff))
+    })
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+    const first = simpleService.stageDocument({ category: 'SUPPORTING', originalFilename: 'form.png', mimeType: 'image/png', contentBase64: png.toString('base64') }, userId)
+    const second = simpleService.stageDocument({ category: 'SUPPORTING', originalFilename: 'receipt.png', mimeType: 'image/png', contentBase64: png.toString('base64') }, userId)
+    const input = {
+      transactionId: 'aa65f269-e1ae-4d38-a250-a20db52a0e44',
+      idempotencyKey: 'bb65f269-e1ae-4d38-a250-a20db52a0e44',
+      referenceName: 'Walk-in referral',
+      ticketNumber: 'TICKET-158',
+      customerName: 'Test Customer',
+      registration: 'REG-22',
+      status: 'PENDING' as const,
+      salePricePaisa: 250_025,
+      serviceChargesPaisa: 10_000,
+      otherFeesPaisa: 0,
+      amountReceivedPaisa: 100_000,
+      paymentMethod: 'CASH' as const,
+      paymentReferenceNumber: '',
+      paymentRemarks: '',
+      remarks: 'Optional note',
+      stagedDocumentTokens: [first.token, second.token]
+    }
+
+    const sale = simpleService.createSimpleSale(input)
+    expect(sale.status).toBe('PENDING')
+    expect(sale.reference_name).toBe('Walk-in referral')
+    expect(sale.ticket_number).toBe('TICKET-158')
+    expect(sale.customer_name).toBe('Test Customer')
+    expect(sale.registration).toBe('REG-22')
+    expect(sale.total_payable_paisa).toBe(260_025)
+    expect(sale.outstanding_balance_paisa).toBe(160_025)
+    expect(simpleService.getSimpleSale(sale.id).documents).toHaveLength(2)
+
+    const retry = simpleService.createSimpleSale(input)
+    expect(retry.id).toBe(sale.id)
+    const payment = simpleService.recordSimplePayment({ saleId: sale.id, amountPaisa: 160_025, method: 'BANK' })
+    expect(payment.receiptNumber).toMatch(/^STPR-\d{8}-\d{4}$/)
+    const settled = simpleService.getSimpleSale(sale.id)
+    expect(settled.amount_received_paisa).toBe(260_025)
+    expect(settled.outstanding_balance_paisa).toBe(0)
+    expect(settled.payments).toHaveLength(2)
+  })
+
+  it('requires ticket number and registration with helpful model and database validation', () => {
+    const invalidModel = SimpleStampSaleCreateSchema.safeParse({
+      transactionId: 'aa65f269-e1ae-4d38-a250-a20db52a0e44',
+      idempotencyKey: 'bb65f269-e1ae-4d38-a250-a20db52a0e44',
+      referenceName: 'Referral',
+      ticketNumber: '  ',
+      customerName: 'Customer',
+      registration: '',
+      status: 'PENDING',
+      salePricePaisa: 0,
+      serviceChargesPaisa: 0,
+      otherFeesPaisa: 0,
+      amountReceivedPaisa: 0,
+      paymentMethod: 'CASH'
+    })
+    expect(invalidModel.success).toBe(false)
+    if (!invalidModel.success) {
+      expect(invalidModel.error.issues.map((issue) => issue.message)).toContain('Enter the ticket number.')
+      expect(invalidModel.error.issues.map((issue) => issue.message)).toContain('Enter the registration.')
+    }
+
+    expect(() => db.prepare(`
+      INSERT INTO stamp_paper_transactions (
+        txn_no, transaction_id, idempotency_key, reference_name, ticket_number,
+        bank_employee_name, customer_name, register_no, price, sale_price_paisa,
+        service_charges_paisa, other_fees_paisa, total_payable_paisa, status, created_by
+      ) VALUES ('TEST-T1', 'cc65f269-e1ae-4d38-a250-a20db52a0e44', 'dd65f269-e1ae-4d38-a250-a20db52a0e44', 'Ref', '  ', '', 'Customer', 'REG-1', 0, 0, 0, 0, 0, 'PENDING', ?)
+    `).run(userId)).toThrow('Ticket number is required. Enter the ticket number.')
+
+    expect(() => db.prepare(`
+      INSERT INTO stamp_paper_transactions (
+        txn_no, transaction_id, idempotency_key, reference_name, ticket_number,
+        bank_employee_name, customer_name, register_no, price, sale_price_paisa,
+        service_charges_paisa, other_fees_paisa, total_payable_paisa, status, created_by
+      ) VALUES ('TEST-T2', 'ee65f269-e1ae-4d38-a250-a20db52a0e44', 'ff65f269-e1ae-4d38-a250-a20db52a0e44', 'Ref', 'T-2', '', 'Customer', '  ', 0, 0, 0, 0, 0, 'PENDING', ?)
+    `).run(userId)).toThrow('Registration is required. Enter the registration.')
   })
 })

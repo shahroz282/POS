@@ -3,7 +3,8 @@ import type {
   LoginInput, LoginOutput, SetupAdminInput, SessionUser,
   CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UserRow,
   UpdateSettingsInput, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
-  StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary
+  StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary,
+  SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow
 } from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
@@ -48,4 +49,14 @@ export interface WindowApi {
   stampDocumentsList: (saleId: number) => Promise<IpcResult<StampDocumentRow[]>>
   stampDocumentRead: (saleId: number, id: number) => Promise<IpcResult<{ originalFilename: string; mimeType: string; contentBase64: string }>>
   stampDocumentRemove: (saleId: number, id: number) => Promise<IpcResult<null>>
+
+  // ── Simple stamp transactions ──────────────────────────────────────────
+  simpleStampCreate: (input: SimpleStampSaleCreate) => Promise<IpcResult<SimpleStampSaleRow>>
+  simpleStampList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SimpleStampSaleRow[]>>
+  simpleStampDetail: (stampId: number) => Promise<IpcResult<SimpleStampSaleDetail>>
+  simpleStampPayment: (input: StampPaymentCreate) => Promise<IpcResult<{ receiptNumber: string }>>
+  simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => Promise<IpcResult<{ token: string; originalFilename: string; mimeType: string; fileSize: number }>>
+  simpleStampDocumentDiscard: (token: string) => Promise<IpcResult<null>>
+  simpleStampDocumentRead: (stampId: number, id: number) => Promise<IpcResult<{ originalFilename: string; mimeType: string; contentBase64: string }>>
+  simpleStampDocumentRemove: (stampId: number, id: number) => Promise<IpcResult<null>>
 }

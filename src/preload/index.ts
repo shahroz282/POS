@@ -3,6 +3,7 @@ import type { WindowApi } from '@shared/types'
 import type {
   PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
   ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate
+  , SimpleStampSaleCreate
 } from '@shared/schemas'
 
 /**
@@ -44,7 +45,17 @@ const api: WindowApi = {
   stampDocumentDiscard: (token: string) => ipcRenderer.invoke('stamp:documents:discard', { token }),
   stampDocumentsList: (saleId: number) => ipcRenderer.invoke('stamp:documents:list', { saleId }),
   stampDocumentRead: (saleId: number, id: number) => ipcRenderer.invoke('stamp:documents:read', { saleId, id }),
-  stampDocumentRemove: (saleId: number, id: number) => ipcRenderer.invoke('stamp:documents:remove', { saleId, id })
+  stampDocumentRemove: (saleId: number, id: number) => ipcRenderer.invoke('stamp:documents:remove', { saleId, id }),
+
+  // ── Simple stamp transactions ──────────────────────────────────────────
+  simpleStampCreate: (input: SimpleStampSaleCreate) => ipcRenderer.invoke('simple-stamp:create', input),
+  simpleStampList: (query?: string, fromDate?: string, toDate?: string) => ipcRenderer.invoke('simple-stamp:list', { query, fromDate, toDate }),
+  simpleStampDetail: (stampId: number) => ipcRenderer.invoke('simple-stamp:detail', { stampId }),
+  simpleStampPayment: (input: StampPaymentCreate) => ipcRenderer.invoke('simple-stamp:payment', input),
+  simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => ipcRenderer.invoke('simple-stamp:document-stage', input),
+  simpleStampDocumentDiscard: (token: string) => ipcRenderer.invoke('simple-stamp:document-discard', { token }),
+  simpleStampDocumentRead: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-read', { saleId: stampId, id }),
+  simpleStampDocumentRemove: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-remove', { saleId: stampId, id })
 }
 
 contextBridge.exposeInMainWorld('api', api)

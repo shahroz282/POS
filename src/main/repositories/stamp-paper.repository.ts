@@ -1,5 +1,8 @@
 import type { DB } from '../db/db'
-import type { StampInventoryRow, StampPartySummary, StampPaymentRow, StampRefundRow, StampSaleDetail, StampSaleListRow } from '@shared/schemas'
+import type {
+  SimpleStampDocumentRow, SimpleStampSaleDetail, SimpleStampSaleRow, StampInventoryRow,
+  StampPartySummary, StampPaymentRow, StampRefundRow, StampSaleDetail, StampSaleListRow
+} from '@shared/schemas'
 
 export interface StampPartyRow {
   id: number
@@ -14,6 +17,104 @@ export interface StampPartyRow {
 
 export class StampPaperRepository {
   constructor(private readonly db: DB) {}
+
+  private simpleSaleSelect(): string {
+    return `
+      SELECT s.id, s.transaction_id, s.txn_no AS invoice_number, s.created_at AS transaction_date,
+        COALESCE(s.reference_name, '') AS reference_name, s.ticket_number, s.customer_name,
+        s.register_no AS registration, s.status, s.sale_price_paisa, s.service_charges_paisa,
+        s.other_fees_paisa, s.total_payable_paisa,
+        COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0) AS amount_received_paisa,
+        s.total_payable_paisa - COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0) AS outstanding_balance_paisa,
+        s.remarks
+      FROM stamp_paper_transactions s
+      WHERE s.transaction_id IS NOT NULL
+    `
+  }
+
+  insertSimpleSale(input: {
+    transactionId: string; idempotencyKey: string; invoiceNumber: string; referenceName: string; ticketNumber?: string;
+    customerName: string; registration: string; status: string; salePricePaisa: number;
+    serviceChargesPaisa: number; otherFeesPaisa: number; totalPayablePaisa: number;
+    amountReceivedPaisa: number; paymentMethod: string; paymentReferenceNumber?: string;
+    paymentRemarks?: string; remarks?: string; createdBy: number
+  }): number {
+    const result = this.db.prepare(`
+      INSERT INTO stamp_paper_transactions (
+        txn_no, transaction_id, idempotency_key, reference_name, ticket_number, bank_employee_name, customer_name,
+        register_no, price, sale_price_paisa, service_charges_paisa, other_fees_paisa,
+        total_payable_paisa, status, remarks, created_by
+      ) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(input.invoiceNumber, input.transactionId, input.idempotencyKey, input.referenceName,
+      input.ticketNumber || null, input.customerName, input.registration, Math.round(input.salePricePaisa / 100),
+      input.salePricePaisa, input.serviceChargesPaisa, input.otherFeesPaisa, input.totalPayablePaisa,
+      input.status, input.remarks || null, input.createdBy)
+    const stampId = Number(result.lastInsertRowid)
+    if (input.amountReceivedPaisa > 0) {
+      this.insertSimplePayment({
+        stampId,
+        receiptNumber: `${input.invoiceNumber}-R1`,
+        amountPaisa: input.amountReceivedPaisa,
+        method: input.paymentMethod,
+        referenceNumber: input.paymentReferenceNumber,
+        remarks: input.paymentRemarks,
+        createdBy: input.createdBy
+      })
+    }
+    return stampId
+  }
+
+  findSimpleSaleByKey(key: string): SimpleStampSaleRow | undefined {
+    return this.db.prepare(`${this.simpleSaleSelect()} AND s.idempotency_key = ?`).get(key) as unknown as SimpleStampSaleRow | undefined
+  }
+
+  listSimpleSales(query: string, fromDate?: string, toDate?: string): SimpleStampSaleRow[] {
+    const like = `%${query}%`
+    return this.db.prepare(`${this.simpleSaleSelect()}
+      AND (? = '' OR s.txn_no LIKE ? OR s.transaction_id LIKE ? OR s.reference_name LIKE ? OR s.ticket_number LIKE ? OR s.customer_name LIKE ? OR s.register_no LIKE ?)
+      AND (? IS NULL OR date(s.created_at) >= date(?))
+      AND (? IS NULL OR date(s.created_at) <= date(?))
+      ORDER BY s.id DESC LIMIT 200
+    `).all(query, like, like, like, like, like, like, fromDate ?? null, fromDate ?? null, toDate ?? null, toDate ?? null) as unknown as SimpleStampSaleRow[]
+  }
+
+  getSimpleSale(stampId: number): SimpleStampSaleDetail | undefined {
+    const sale = this.db.prepare(`${this.simpleSaleSelect()} AND s.id = ?`).get(stampId) as Omit<SimpleStampSaleDetail, 'payments' | 'documents'> | undefined
+    if (!sale) return undefined
+    const payments = this.db.prepare(`
+      SELECT id, receipt_number, amount_paisa, method, reference_number, remarks, paid_at
+      FROM stamp_transaction_payments WHERE stamp_id = ? ORDER BY id
+    `).all(stampId) as unknown as StampPaymentRow[]
+    const documents = this.db.prepare(`
+      SELECT id, stamp_id, original_filename, mime_type, file_size, created_at
+      FROM stamp_transaction_documents WHERE stamp_id = ? ORDER BY id
+    `).all(stampId) as unknown as SimpleStampDocumentRow[]
+    return { ...sale, payments, documents }
+  }
+
+  insertSimplePayment(input: {
+    stampId: number; receiptNumber: string; amountPaisa: number; method: string;
+    referenceNumber?: string; remarks?: string; createdBy: number
+  }): void {
+    this.db.prepare(`
+      INSERT INTO stamp_transaction_payments (stamp_id, receipt_number, amount_paisa, method, reference_number, remarks, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.stampId, input.receiptNumber, input.amountPaisa, input.method,
+      input.referenceNumber || null, input.remarks || null, input.createdBy)
+  }
+
+  insertSimpleDocument(input: {
+    stampId: number; originalFilename: string; storedFilename: string; relativePath: string;
+    mimeType: string; fileSize: number; createdBy: number
+  }): number {
+    const result = this.db.prepare(`
+      INSERT INTO stamp_transaction_documents (
+        stamp_id, original_filename, stored_filename, relative_storage_path, mime_type, file_size, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.stampId, input.originalFilename, input.storedFilename, input.relativePath,
+      input.mimeType, input.fileSize, input.createdBy)
+    return Number(result.lastInsertRowid)
+  }
 
   listInventory(query: string): StampInventoryRow[] {
     return this.db.prepare(`

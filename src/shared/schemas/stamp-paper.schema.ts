@@ -172,3 +172,64 @@ export interface StampDocumentRow {
   file_size: number
   created_at: string
 }
+
+export const SimpleStampSaleCreateSchema = z.object({
+  transactionId: z.string().uuid(),
+  idempotencyKey: z.string().uuid(),
+  referenceName: z.string().trim().min(1).max(150),
+  ticketNumber: z.string({ required_error: 'Enter the ticket number.' })
+    .trim()
+    .min(1, 'Enter the ticket number.')
+    .max(100, 'Ticket number must be 100 characters or fewer.'),
+  customerName: z.string().trim().min(1).max(150),
+  registration: z.string({ required_error: 'Enter the registration.' })
+    .trim()
+    .min(1, 'Enter the registration.')
+    .max(150, 'Registration must be 150 characters or fewer.'),
+  status: z.enum(['PENDING', 'COMPLETED', 'CANCELLED']),
+  salePricePaisa: z.number().int().nonnegative().max(100_000_000),
+  serviceChargesPaisa: z.number().int().nonnegative().max(100_000_000),
+  otherFeesPaisa: z.number().int().nonnegative().max(100_000_000),
+  amountReceivedPaisa: z.number().int().nonnegative().max(100_000_000),
+  paymentMethod: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),
+  paymentReferenceNumber: optionalText(100),
+  paymentRemarks: optionalText(500),
+  remarks: optionalText(1000),
+  stagedDocumentTokens: z.array(z.string().uuid()).max(20).default([])
+})
+export type SimpleStampSaleCreate = z.infer<typeof SimpleStampSaleCreateSchema>
+
+export const SimpleStampPaymentCreateSchema = StampPaymentCreateSchema
+
+export interface SimpleStampSaleRow {
+  id: number
+  transaction_id: string
+  invoice_number: string
+  transaction_date: string
+  reference_name: string
+  ticket_number: string | null
+  customer_name: string
+  registration: string
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED'
+  sale_price_paisa: number
+  service_charges_paisa: number
+  other_fees_paisa: number
+  total_payable_paisa: number
+  amount_received_paisa: number
+  outstanding_balance_paisa: number
+  remarks: string | null
+}
+
+export interface SimpleStampSaleDetail extends SimpleStampSaleRow {
+  payments: StampPaymentRow[]
+  documents: SimpleStampDocumentRow[]
+}
+
+export interface SimpleStampDocumentRow {
+  id: number
+  stamp_id: number
+  original_filename: string
+  mime_type: 'image/jpeg' | 'image/png' | 'application/pdf'
+  file_size: number
+  created_at: string
+}

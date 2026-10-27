@@ -1,5 +1,6 @@
 import { app, ipcMain, safeStorage } from 'electron'
 import path from 'path'
+import { z } from 'zod'
 import type { IpcResult } from '@shared/types'
 import {
   StampDocumentDeleteSchema,
@@ -12,7 +13,9 @@ import {
   StampSaleCancelSchema,
   StampPartySearchSchema,
   StampPaymentCreateSchema,
-  StampSalesSearchSchema
+  StampSalesSearchSchema,
+  SimpleStampPaymentCreateSchema,
+  SimpleStampSaleCreateSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { StampPaperService } from '../services/stamp-paper.service'
@@ -135,6 +138,59 @@ export function registerStampPaperHandlers(): void {
     const parsed = StampDocumentDeleteSchema.safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)
     getService().removeDocument(parsed.data.saleId, parsed.data.id, userId)
+    return null
+  }))
+
+  ipcMain.handle('simple-stamp:create', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = SimpleStampSaleCreateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().createSimpleSale(parsed.data)
+  }))
+
+  ipcMain.handle('simple-stamp:list', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = StampSalesSearchSchema.safeParse(rawInput ?? {})
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().listSimpleSales(parsed.data.query, parsed.data.fromDate, parsed.data.toDate)
+  }))
+
+  ipcMain.handle('simple-stamp:detail', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = z.object({ stampId: z.number().int().positive() }).safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().getSimpleSale(parsed.data.stampId)
+  }))
+
+  ipcMain.handle('simple-stamp:payment', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = SimpleStampPaymentCreateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().recordSimplePayment({ ...parsed.data, saleId: parsed.data.saleId })
+  }))
+
+  ipcMain.handle('simple-stamp:document-stage', (_event, rawInput: unknown) => authenticated((userId) => {
+    const parsed = StampDocumentPickSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    if (parsed.data.category !== 'SUPPORTING') throw new Error('Only transaction attachments are supported')
+    return getService().stageDocument(parsed.data, userId)
+  }))
+
+  ipcMain.handle('simple-stamp:document-discard', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = StampDocumentDiscardSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    getService().discardStagedDocument(parsed.data.token)
+    return null
+  }))
+
+  ipcMain.handle('simple-stamp:document-read', (_event, rawInput: unknown) => authenticated((userId, role) => {
+    const parsed = StampDocumentReadSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    requireManager(role)
+    return getService().readSimpleDocument(parsed.data.saleId, parsed.data.id, userId)
+  }))
+
+  ipcMain.handle('simple-stamp:document-remove', (_event, rawInput: unknown) => authenticated((userId, role) => {
+    const parsed = StampDocumentDeleteSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    requireManager(role)
+    getService().removeSimpleDocument(parsed.data.saleId, parsed.data.id, userId)
     return null
   }))
 }

@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import type { DB } from '../db/db'
-import type { StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
+import type { SimpleStampSaleCreate, SimpleStampSaleRow, StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
 import { AuditLogRepository } from '../repositories/audit-log.repository'
 import { StampPaperRepository, type StampPartyRow } from '../repositories/stamp-paper.repository'
 import { getCurrentUser } from './session'
@@ -25,6 +25,154 @@ export class StampPaperService {
     this.repository = new StampPaperRepository(db)
     this.audit = new AuditLogRepository(db)
     this.cleanupOrphanedFiles()
+  }
+
+  createSimpleSale(input: SimpleStampSaleCreate): SimpleStampSaleRow {
+    const user = getCurrentUser()
+    if (!user) throw new Error('Not logged in')
+    if (!input.ticketNumber?.trim()) throw new Error('Enter the ticket number.')
+    if (!input.registration?.trim()) throw new Error('Enter the registration.')
+    const totalPayablePaisa = input.salePricePaisa + input.serviceChargesPaisa + input.otherFeesPaisa
+    if (input.amountReceivedPaisa > totalPayablePaisa) throw new Error('Amount received cannot exceed the total payable')
+    if (input.status === 'CANCELLED' && input.amountReceivedPaisa > 0) throw new Error('A cancelled transaction cannot accept payment')
+    const existing = this.repository.findSimpleSaleByKey(input.idempotencyKey)
+    if (existing) {
+      for (const token of input.stagedDocumentTokens) this.discardStagedDocument(token)
+      return existing
+    }
+
+    const staged = input.stagedDocumentTokens.map((token) => {
+      const document = this.stagedDocuments.get(token)
+      if (!document || document.category !== 'SUPPORTING') throw new Error('One or more uploaded documents expired; upload them again')
+      return document
+    })
+    if (new Set(input.stagedDocumentTokens).size !== input.stagedDocumentTokens.length) throw new Error('Duplicate document upload token')
+
+    const movedFiles: Array<{ document: typeof staged[number]; destination: string }> = []
+    try {
+      const sale = this.db.transaction(() => {
+        const duplicate = this.repository.findSimpleSaleByKey(input.idempotencyKey)
+        if (duplicate) return duplicate
+
+        const now = new Date()
+        const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+        const invoiceNumber = `STP-${day}-${String(this.repository.nextNumber('STP', day)).padStart(4, '0')}`
+        const stampId = this.repository.insertSimpleSale({
+          transactionId: input.transactionId,
+          idempotencyKey: input.idempotencyKey,
+          invoiceNumber,
+          referenceName: input.referenceName,
+          ticketNumber: input.ticketNumber.trim(),
+          customerName: input.customerName,
+          registration: input.registration.trim(),
+          status: input.status,
+          salePricePaisa: input.salePricePaisa,
+          serviceChargesPaisa: input.serviceChargesPaisa,
+          otherFeesPaisa: input.otherFeesPaisa,
+          totalPayablePaisa,
+          amountReceivedPaisa: input.amountReceivedPaisa,
+          paymentMethod: input.paymentMethod,
+          paymentReferenceNumber: input.paymentReferenceNumber,
+          paymentRemarks: input.paymentRemarks,
+          remarks: input.remarks,
+          createdBy: user.id
+        })
+
+        for (const document of staged) {
+          const relativePath = path.join('simple_stamp_paper', input.transactionId, `${document.token}${path.extname(document.filePath)}`)
+          const destination = path.join(this.documentRoot, relativePath)
+          fs.mkdirSync(path.dirname(destination), { recursive: true })
+          fs.renameSync(document.filePath, destination)
+          movedFiles.push({ document, destination })
+          this.repository.insertSimpleDocument({
+            stampId,
+            originalFilename: document.originalFilename,
+            storedFilename: path.basename(destination),
+            relativePath,
+            mimeType: document.mimeType,
+            fileSize: document.fileSize,
+            createdBy: user.id
+          })
+        }
+
+        this.audit.insert(user.id, 'STAMP_TRANSACTION_CREATED', 'stamp_paper_transactions', stampId,
+          `Invoice ${invoiceNumber}; status ${input.status}`)
+        return this.repository.getSimpleSale(stampId)!
+      })()
+      for (const document of staged) this.stagedDocuments.delete(document.token)
+      return sale
+    } catch (error) {
+      for (const moved of movedFiles) {
+        if (fs.existsSync(moved.destination)) {
+          fs.mkdirSync(path.dirname(moved.document.filePath), { recursive: true })
+          fs.renameSync(moved.destination, moved.document.filePath)
+        }
+      }
+      throw error
+    }
+  }
+
+  listSimpleSales(query = '', fromDate?: string, toDate?: string) {
+    return this.repository.listSimpleSales(query, fromDate, toDate)
+  }
+
+  getSimpleSale(stampId: number) {
+    const sale = this.repository.getSimpleSale(stampId)
+    if (!sale) throw new Error('Stamp paper transaction not found')
+    return sale
+  }
+
+  recordSimplePayment(input: { saleId: number; amountPaisa: number; method: string; referenceNumber?: string; remarks?: string }) {
+    const user = getCurrentUser()
+    if (!user) throw new Error('Not logged in')
+    return this.db.transaction(() => {
+      const sale = this.repository.getSimpleSale(input.saleId)
+      if (!sale || sale.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
+      if (input.amountPaisa > sale.outstanding_balance_paisa) throw new Error('Payment cannot exceed the outstanding balance')
+      const now = new Date()
+      const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+      const receiptNumber = `STPR-${day}-${String(this.repository.nextNumber('STPR', day)).padStart(4, '0')}`
+      this.repository.insertSimplePayment({
+        stampId: input.saleId,
+        receiptNumber,
+        amountPaisa: input.amountPaisa,
+        method: input.method,
+        referenceNumber: input.referenceNumber,
+        remarks: input.remarks,
+        createdBy: user.id
+      })
+      this.audit.insert(user.id, 'STAMP_PAYMENT_RECEIVED', 'stamp_paper_transactions', input.saleId, `Receipt ${receiptNumber}`)
+      return { receiptNumber }
+    })()
+  }
+
+  readSimpleDocument(stampId: number, documentId: number, userId: number) {
+    const row = this.db.prepare(`
+      SELECT relative_storage_path, mime_type, original_filename
+      FROM stamp_transaction_documents WHERE id = ? AND stamp_id = ?
+    `).get(documentId, stampId) as { relative_storage_path: string; mime_type: string; original_filename: string } | undefined
+    if (!row) throw new Error('Document not found')
+    const fullPath = path.resolve(this.documentRoot, row.relative_storage_path)
+    const safeRoot = path.resolve(this.documentRoot) + path.sep
+    if (!fullPath.startsWith(safeRoot) || !fs.existsSync(fullPath)) throw new Error('Document file is unavailable')
+    const bytes = this.documentCrypto.decrypt(fs.readFileSync(fullPath))
+    this.audit.insert(userId, 'STAMP_DOCUMENT_VIEWED', 'stamp_transaction_documents', documentId, `Viewed ${row.mime_type}`)
+    return { originalFilename: row.original_filename, mimeType: row.mime_type, contentBase64: bytes.toString('base64') }
+  }
+
+  removeSimpleDocument(stampId: number, documentId: number, userId: number): void {
+    const row = this.db.prepare(`
+      SELECT relative_storage_path FROM stamp_transaction_documents WHERE id = ? AND stamp_id = ?
+    `).get(documentId, stampId) as { relative_storage_path: string } | undefined
+    if (!row) throw new Error('Document not found')
+    const fullPath = path.resolve(this.documentRoot, row.relative_storage_path)
+    const safeRoot = path.resolve(this.documentRoot) + path.sep
+    if (!fullPath.startsWith(safeRoot)) throw new Error('Invalid document storage path')
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM stamp_transaction_documents WHERE id = ? AND stamp_id = ?').run(documentId, stampId)
+      this.audit.insert(userId, 'STAMP_DOCUMENT_REMOVED', 'stamp_transaction_documents', documentId, 'Document removed by authorized user')
+    })()
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath)
   }
 
   listInventory(query = '', role = 'CASHIER') {
@@ -351,7 +499,10 @@ export class StampPaperService {
   }
 
   private cleanupOrphanedFiles(): void {
-    const referenced = new Set(this.db.prepare('SELECT relative_storage_path FROM stamp_paper_documents').all()
+    const referenced = new Set([
+      ...this.db.prepare('SELECT relative_storage_path FROM stamp_paper_documents').all(),
+      ...this.db.prepare('SELECT relative_storage_path FROM stamp_transaction_documents').all()
+    ]
       .map((row) => String(row.relative_storage_path)))
     const walk = (directory: string, relativeDirectory = '') => {
       if (!fs.existsSync(directory)) return
@@ -368,5 +519,6 @@ export class StampPaperService {
     }
     walk(path.join(this.documentRoot, 'staging'), 'staging')
     walk(path.join(this.documentRoot, 'stamp_paper'), 'stamp_paper')
+    walk(path.join(this.documentRoot, 'simple_stamp_paper'), 'simple_stamp_paper')
   }
 }
