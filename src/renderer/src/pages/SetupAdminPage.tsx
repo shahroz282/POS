@@ -41,8 +41,8 @@ export default function SetupAdminPage({ onSetupComplete }: Props) {
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
       <div className="bg-gray-900 rounded-2xl shadow-2xl p-10 w-full max-w-sm border border-gray-800">
-        <h1 className="text-2xl font-bold text-brand-400 mb-1">Welcome to Saqib POS</h1>
-        <p className="text-gray-500 text-sm mb-6">Create your Admin account to get started</p>
+        <h1 className="text-2xl font-bold text-brand-400 mb-1">Saqib POS</h1>
+        <p className="text-gray-500 text-sm mb-8">Photo State — Create your Admin account to get started</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <input

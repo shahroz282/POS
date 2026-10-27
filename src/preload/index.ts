@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { WindowApi } from '@shared/types'
-import type { PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UpdateSettingsInput } from '@shared/schemas'
+import type {
+  PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
+  ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate
+} from '@shared/schemas'
 
 /**
  * Exposes a typed `window.api` to the renderer via contextBridge.
@@ -26,7 +29,22 @@ const api: WindowApi = {
 
   // ── Settings ────────────────────────────────────────────────────────────
   settingsGet: () => ipcRenderer.invoke('settings:get'),
-  settingsUpdate: (input: UpdateSettingsInput) => ipcRenderer.invoke('settings:update', input)
+  settingsUpdate: (input: UpdateSettingsInput) => ipcRenderer.invoke('settings:update', input),
+
+  // ── Stamp paper ─────────────────────────────────────────────────────────
+  stampInventoryList: (query?: string) => ipcRenderer.invoke('stamp:inventory:list', query),
+  stampInventoryAdd: (input: StampInventoryCreate) => ipcRenderer.invoke('stamp:inventory:add', input),
+  stampPartySearch: (query: string) => ipcRenderer.invoke('stamp:parties:search', query),
+  stampSaleCreate: (input: StampPaperSaleCreate) => ipcRenderer.invoke('stamp:sales:create', input),
+  stampSalesList: (query?: string, fromDate?: string, toDate?: string) => ipcRenderer.invoke('stamp:sales:list', { query, fromDate, toDate }),
+  stampSaleDetail: (saleId: number) => ipcRenderer.invoke('stamp:sales:detail', { saleId }),
+  stampPaymentCreate: (input: StampPaymentCreate) => ipcRenderer.invoke('stamp:payments:create', input),
+  stampSaleCancel: (saleId: number, reason: string, refundMethod?: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH') => ipcRenderer.invoke('stamp:sales:cancel', { saleId, reason, refundMethod }),
+  stampDocumentStage: (input: { category: string; originalFilename: string; mimeType: string; contentBase64: string }) => ipcRenderer.invoke('stamp:documents:stage', input),
+  stampDocumentDiscard: (token: string) => ipcRenderer.invoke('stamp:documents:discard', { token }),
+  stampDocumentsList: (saleId: number) => ipcRenderer.invoke('stamp:documents:list', { saleId }),
+  stampDocumentRead: (saleId: number, id: number) => ipcRenderer.invoke('stamp:documents:read', { saleId, id }),
+  stampDocumentRemove: (saleId: number, id: number) => ipcRenderer.invoke('stamp:documents:remove', { saleId, id })
 }
 
 contextBridge.exposeInMainWorld('api', api)

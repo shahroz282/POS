@@ -40,7 +40,8 @@ async function getSqlJs(): Promise<SqlJs> {
 class SqlJsStatement implements PreparedStatement {
   constructor(
     private readonly sqlDb: SqlJs,
-    private readonly sql: string
+    private readonly sql: string,
+    private readonly onWrite: () => void
   ) {}
 
   private bindParams(params: unknown[]): unknown[] | Record<string, unknown> {
@@ -83,6 +84,7 @@ class SqlJsStatement implements PreparedStatement {
     const bound = this.bindParams(params)
     this.sqlDb.run(this.sql, Array.isArray(bound) ? bound : [])
     const changes = this.sqlDb.getRowsModified() as number
+    this.onWrite()
     const [{ 'last_insert_rowid()': lastId }] = (this.sqlDb.exec('SELECT last_insert_rowid()')[0]?.values ?? [[0]]).map(
       (row: unknown[]) => ({ 'last_insert_rowid()': row[0] })
     )
@@ -97,6 +99,7 @@ class SqlJsStatement implements PreparedStatement {
 export class SqlJsDatabase implements DB {
   private readonly sqlDb: SqlJs
   private readonly filePath: string | null
+  private transactionDepth = 0
 
   constructor(sqlDb: SqlJs, filePath: string | null) {
     this.sqlDb = sqlDb
@@ -109,7 +112,9 @@ export class SqlJsDatabase implements DB {
   }
 
   prepare(sql: string): PreparedStatement {
-    return new SqlJsStatement(this.sqlDb, sql)
+    return new SqlJsStatement(this.sqlDb, sql, () => {
+      if (this.transactionDepth === 0) this.persist()
+    })
   }
 
   pragma(clause: string): void {
@@ -123,13 +128,16 @@ export class SqlJsDatabase implements DB {
   transaction<T>(fn: () => T): () => T {
     return () => {
       this.sqlDb.run('BEGIN')
+      this.transactionDepth += 1
       try {
         const result = fn()
         this.sqlDb.run('COMMIT')
+        this.transactionDepth -= 1
         this.persist()
         return result
       } catch (err) {
         this.sqlDb.run('ROLLBACK')
+        this.transactionDepth -= 1
         throw err
       }
     }

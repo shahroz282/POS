@@ -2,7 +2,8 @@ import type {
   PingInput, PingOutput,
   LoginInput, LoginOutput, SetupAdminInput, SessionUser,
   CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UserRow,
-  UpdateSettingsInput
+  UpdateSettingsInput, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
+  StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary
 } from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
@@ -32,4 +33,19 @@ export interface WindowApi {
   // ── Settings ────────────────────────────────────────────────────────────
   settingsGet: () => Promise<IpcResult<{ shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string }>>
   settingsUpdate: (input: UpdateSettingsInput) => Promise<IpcResult<null>>
+
+  // ── Stamp paper ─────────────────────────────────────────────────────────
+  stampInventoryList: (query?: string) => Promise<IpcResult<StampInventoryRow[]>>
+  stampInventoryAdd: (input: StampInventoryCreate) => Promise<IpcResult<{ id: number }>>
+  stampPartySearch: (query: string) => Promise<IpcResult<StampPartySummary[]>>
+  stampSaleCreate: (input: StampPaperSaleCreate) => Promise<IpcResult<StampSaleListRow>>
+  stampSalesList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<StampSaleListRow[]>>
+  stampSaleDetail: (saleId: number) => Promise<IpcResult<StampSaleDetail>>
+  stampPaymentCreate: (input: StampPaymentCreate) => Promise<IpcResult<{ receiptNumber: string }>>
+  stampSaleCancel: (saleId: number, reason: string, refundMethod?: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH') => Promise<IpcResult<null>>
+  stampDocumentStage: (input: { category: string; originalFilename: string; mimeType: string; contentBase64: string }) => Promise<IpcResult<{ token: string; originalFilename: string; mimeType: string; fileSize: number }>>
+  stampDocumentDiscard: (token: string) => Promise<IpcResult<null>>
+  stampDocumentsList: (saleId: number) => Promise<IpcResult<StampDocumentRow[]>>
+  stampDocumentRead: (saleId: number, id: number) => Promise<IpcResult<{ originalFilename: string; mimeType: string; contentBase64: string }>>
+  stampDocumentRemove: (saleId: number, id: number) => Promise<IpcResult<null>>
 }

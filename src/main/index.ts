@@ -5,6 +5,7 @@ import { createWindow } from './window'
 import { registerPingHandler } from './ipc/ping.handler'
 import { registerAuthHandlers } from './ipc/auth.handler'
 import { registerSettingsHandlers } from './ipc/settings.handler'
+import { registerStampPaperHandlers } from './ipc/stamp-paper.handler'
 
 // Surface any startup crash in the electron-vite dev console
 process.on('uncaughtException', (err) => {
@@ -19,6 +20,7 @@ app.whenReady().then(async () => {
   registerPingHandler()
   registerAuthHandlers()
   registerSettingsHandlers()
+  registerStampPaperHandlers()
   createWindow()
 
   app.on('activate', () => {
