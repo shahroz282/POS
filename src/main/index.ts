@@ -3,6 +3,8 @@ import { initDb, closeDb } from './db/connection'
 import { runMigrations } from './db/migrate'
 import { createWindow } from './window'
 import { registerPingHandler } from './ipc/ping.handler'
+import { registerAuthHandlers } from './ipc/auth.handler'
+import { registerSettingsHandlers } from './ipc/settings.handler'
 
 // Surface any startup crash in the electron-vite dev console
 process.on('uncaughtException', (err) => {
@@ -15,6 +17,8 @@ app.whenReady().then(async () => {
   runMigrations(db)
 
   registerPingHandler()
+  registerAuthHandlers()
+  registerSettingsHandlers()
   createWindow()
 
   app.on('activate', () => {

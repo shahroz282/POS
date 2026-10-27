@@ -1,33 +1,42 @@
 import type { PageId } from '../../app/App'
+import type { SessionUser } from '@shared/schemas'
 
 interface NavItem {
-  id: Exclude<PageId, 'login'>
+  id: Exclude<PageId, 'login' | 'setup-admin'>
   label: string
   icon: string
-  moduleNo: number
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',     label: 'Dashboard',      icon: '🏠', moduleNo: 2 },
-  { id: 'sales',         label: 'Normal Sales',   icon: '🛒', moduleNo: 3 },
-  { id: 'stamp-paper',   label: 'Stamp Paper',    icon: '📜', moduleNo: 4 },
-  { id: 'admissions',    label: 'Admissions',     icon: '🎓', moduleNo: 5 },
-  { id: 'schemes',       label: 'Schemes',        icon: '📋', moduleNo: 6 },
-  { id: 'daily-closing', label: 'Daily Closing',  icon: '📅', moduleNo: 7 },
-  { id: 'udhaar',        label: 'Udhaar',         icon: '💳', moduleNo: 8 },
-  { id: 'inventory',     label: 'Inventory',      icon: '📦', moduleNo: 9 },
-  { id: 'reports',       label: 'Reports',        icon: '📊', moduleNo: 10 },
-  { id: 'settings',      label: 'Settings',       icon: '⚙️',  moduleNo: 11 },
-  { id: 'backup',        label: 'Backup',         icon: '💾', moduleNo: 12 }
+const ALL_NAV_ITEMS: NavItem[] = [
+  { id: 'dashboard',     label: 'Dashboard',      icon: '🏠' },
+  { id: 'sales',         label: 'Normal Sales',   icon: '🛒' },
+  { id: 'stamp-paper',   label: 'Stamp Paper',    icon: '📜' },
+  { id: 'admissions',    label: 'Admissions',     icon: '🎓' },
+  { id: 'schemes',       label: 'Schemes',        icon: '📋' },
+  { id: 'daily-closing', label: 'Daily Closing',  icon: '📅' },
+  { id: 'udhaar',        label: 'Udhaar',         icon: '💳' },
+  { id: 'inventory',     label: 'Inventory',      icon: '📦' },
+  { id: 'reports',       label: 'Reports',        icon: '📊' },
+  { id: 'users',         label: 'Users',          icon: '👥' },
+  { id: 'settings',      label: 'Settings',       icon: '⚙️' },
+  { id: 'backup',        label: 'Backup',         icon: '💾' }
 ]
 
 interface Props {
   currentPage: PageId
   onNavigate: (page: PageId) => void
+  user: SessionUser
+  allowedPages: string[]
+  onLogout: () => void
   children: React.ReactNode
 }
 
-export default function SidebarLayout({ currentPage, onNavigate, children }: Props) {
+/**
+ * SPEC.md §1: Sidebar shows only the pages the role is allowed to see.
+ */
+export default function SidebarLayout({ currentPage, onNavigate, user, allowedPages, onLogout, children }: Props) {
+  const visibleItems = ALL_NAV_ITEMS.filter((item) => allowedPages.includes(item.id))
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* ── Sidebar ── */}
@@ -40,7 +49,7 @@ export default function SidebarLayout({ currentPage, onNavigate, children }: Pro
 
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {NAV_ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const active = currentPage === item.id
             return (
               <button
@@ -61,9 +70,23 @@ export default function SidebarLayout({ currentPage, onNavigate, children }: Pro
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-gray-800 text-xs text-gray-600">
-          v0.1.0 — offline
+        {/* User info + logout */}
+        <div className="px-4 py-3 border-t border-gray-800">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-sm text-gray-200 font-medium truncate">{user.name}</p>
+              <p className="text-xs text-gray-500">{user.role}</p>
+            </div>
+            <button
+              id="btn-logout"
+              onClick={onLogout}
+              className="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-gray-800"
+              title="Sign out"
+            >
+              ↪ Out
+            </button>
+          </div>
+          <p className="text-xs text-gray-600">v0.1.0 — offline</p>
         </div>
       </aside>
 

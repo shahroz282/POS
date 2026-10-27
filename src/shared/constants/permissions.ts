@@ -13,6 +13,7 @@ export const Permissions = {
   canUnlockDay: (role: Role) => role === Role.ADMIN,
   canViewAllReports: (role: Role) => role !== Role.CASHIER,
   canManageUsers: (role: Role) => role === Role.ADMIN,
+  canSettings: (role: Role) => role === Role.ADMIN,
   canBackup: (role: Role) => role !== Role.CASHIER,
   canRestore: (role: Role) => role === Role.ADMIN
 } as const
