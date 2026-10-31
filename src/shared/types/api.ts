@@ -6,6 +6,10 @@ import type {
   StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary,
   SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow
 } from '../schemas'
+import type {
+  AdmissionClassCreate, AdmissionDetail, AdmissionPaymentCreate, AdmissionPaymentResult,
+  AdmissionStudentCreate, AdmissionStudentRow, AdmissionClassRow
+} from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -59,4 +63,14 @@ export interface WindowApi {
   simpleStampDocumentDiscard: (token: string) => Promise<IpcResult<null>>
   simpleStampDocumentRead: (stampId: number, id: number) => Promise<IpcResult<{ originalFilename: string; mimeType: string; contentBase64: string }>>
   simpleStampDocumentRemove: (stampId: number, id: number) => Promise<IpcResult<null>>
+
+  // ── Admissions ──────────────────────────────────────────────────────────
+  admissionsSummary: () => Promise<IpcResult<{ activeStudents: number; newThisMonth: number; collectedToday: number; collectedThisMonth: number; outstanding: number; pendingDues: number }>>
+  admissionsClasses: () => Promise<IpcResult<AdmissionClassRow[]>>
+  admissionsClassCreate: (input: AdmissionClassCreate) => Promise<IpcResult<{ id: number }>>
+  admissionsStudentCreate: (input: AdmissionStudentCreate) => Promise<IpcResult<{ admissionId: number; studentId: number; studentNo: string }>>
+  admissionsStudents: (query?: string, classId?: number) => Promise<IpcResult<AdmissionStudentRow[]>>
+  admissionsDetail: (admissionId: number) => Promise<IpcResult<AdmissionDetail>>
+  admissionsPaymentCreate: (input: AdmissionPaymentCreate) => Promise<IpcResult<AdmissionPaymentResult>>
+  admissionsStudentsExportExcel: (content: Uint8Array) => Promise<IpcResult<{ saved: boolean }>>
 }

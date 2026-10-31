@@ -177,10 +177,7 @@ export const SimpleStampSaleCreateSchema = z.object({
   transactionId: z.string().uuid(),
   idempotencyKey: z.string().uuid(),
   referenceName: z.string().trim().min(1).max(150),
-  ticketNumber: z.string({ required_error: 'Enter the ticket number.' })
-    .trim()
-    .min(1, 'Enter the ticket number.')
-    .max(100, 'Ticket number must be 100 characters or fewer.'),
+  hasTicketNumber: z.boolean().default(false),
   customerName: z.string().trim().min(1).max(150),
   registration: z.string({ required_error: 'Enter the registration.' })
     .trim()
@@ -208,6 +205,7 @@ export interface SimpleStampSaleRow {
   transaction_date: string
   reference_name: string
   ticket_number: string | null
+  has_ticket_number: number
   customer_name: string
   registration: string
   status: 'PENDING' | 'COMPLETED' | 'CANCELLED'

@@ -30,7 +30,6 @@ export class StampPaperService {
   createSimpleSale(input: SimpleStampSaleCreate): SimpleStampSaleRow {
     const user = getCurrentUser()
     if (!user) throw new Error('Not logged in')
-    if (!input.ticketNumber?.trim()) throw new Error('Enter the ticket number.')
     if (!input.registration?.trim()) throw new Error('Enter the registration.')
     const totalPayablePaisa = input.salePricePaisa + input.serviceChargesPaisa + input.otherFeesPaisa
     if (input.amountReceivedPaisa > totalPayablePaisa) throw new Error('Amount received cannot exceed the total payable')
@@ -62,7 +61,7 @@ export class StampPaperService {
           idempotencyKey: input.idempotencyKey,
           invoiceNumber,
           referenceName: input.referenceName,
-          ticketNumber: input.ticketNumber.trim(),
+          hasTicketNumber: input.hasTicketNumber,
           customerName: input.customerName,
           registration: input.registration.trim(),
           status: input.status,

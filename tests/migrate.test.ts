@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
+import fs from 'fs'
 import path from 'path'
 import { runMigrations } from '../src/main/db/migrate'
 import type { DB } from '../src/main/db/db'
@@ -59,6 +60,59 @@ describe('runMigrations', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
       .get()
     expect(info).toBeDefined()
+  })
+
+  it('creates the ticket availability column for simple stamp transactions', () => {
+    runMigrations(db)
+    const columns = db.prepare('PRAGMA table_info(stamp_paper_transactions)').all() as Array<{ name: string }>
+    expect(columns.some((column) => column.name === 'has_ticket_number')).toBe(true)
+  })
+
+  it('preserves existing student admissions and payments when adding the fee ledger', () => {
+    const migrationsDir = path.join(__dirname, '..', 'migrations')
+    for (let id = 1; id <= 7; id += 1) {
+      const file = fs.readdirSync(migrationsDir).find((name) => name.startsWith(`${String(id).padStart(3, '0')}_`))
+      if (!file) throw new Error(`Missing migration ${id}`)
+      db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'))
+    }
+    const userId = Number(db.prepare(
+      "INSERT INTO users (name, username, password_hash, role) VALUES ('Admin', 'admin', 'hash', 'ADMIN')"
+    ).run().lastInsertRowid)
+    const classId = Number(db.prepare(
+      "INSERT INTO class_folders (class_name, academic_year) VALUES ('9th', '2025-2026')"
+    ).run().lastInsertRowid)
+    const studentId = Number(db.prepare(
+      "INSERT INTO students (full_name, father_name, class_id) VALUES ('Legacy Student', 'Guardian', ?)"
+    ).run(classId).lastInsertRowid)
+    const admissionId = Number(db.prepare(`
+      INSERT INTO admissions (student_id, class_id, admission_date, fee, status, created_by)
+      VALUES (?, ?, '2025-09-01', 1000, 'ACTIVE', ?)
+    `).run(studentId, classId, userId).lastInsertRowid)
+    db.prepare(`
+      INSERT INTO payments (receipt_no, admission_id, amount, method, created_by)
+      VALUES ('ADM-LEGACY-0001', ?, 400, 'CASH', ?)
+    `).run(admissionId, userId)
+
+    runMigrations(db)
+
+    expect(db.prepare('SELECT student_no FROM students WHERE id = ?').get(studentId)).toMatchObject({ student_no: null })
+    expect(db.prepare('SELECT SUM(amount) AS paid FROM admission_payment_allocations').get()).toMatchObject({ paid: 400 })
+    expect(db.prepare('SELECT balance_after FROM payments WHERE admission_id = ?').get(admissionId)).toMatchObject({ balance_after: 600 })
+  })
+
+  it('repairs the ticket availability column when its migration is already recorded', () => {
+    const migrationsDir = path.join(__dirname, '..', 'migrations')
+    for (let id = 1; id <= 6; id += 1) {
+      const file = fs.readdirSync(migrationsDir).find((name) => name.startsWith(`${String(id).padStart(3, '0')}_`))
+      if (!file) throw new Error(`Missing migration ${id}`)
+      db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'))
+    }
+    db.prepare("INSERT INTO schema_migrations (id, name) VALUES (7, '007_optional_ticket_number')").run()
+
+    runMigrations(db)
+
+    const columns = db.prepare('PRAGMA table_info(stamp_paper_transactions)').all() as Array<{ name: string }>
+    expect(columns.some((column) => column.name === 'has_ticket_number')).toBe(true)
   })
 
   it('creates the settings table with default values', () => {

@@ -2,8 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { WindowApi } from '@shared/types'
 import type {
   PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
-  ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate
-  , SimpleStampSaleCreate
+  ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate,
+  SimpleStampSaleCreate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate
 } from '@shared/schemas'
 
 /**
@@ -55,7 +55,16 @@ const api: WindowApi = {
   simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => ipcRenderer.invoke('simple-stamp:document-stage', input),
   simpleStampDocumentDiscard: (token: string) => ipcRenderer.invoke('simple-stamp:document-discard', { token }),
   simpleStampDocumentRead: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-read', { saleId: stampId, id }),
-  simpleStampDocumentRemove: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-remove', { saleId: stampId, id })
+  simpleStampDocumentRemove: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-remove', { saleId: stampId, id }),
+  // ── Admissions ──────────────────────────────────────────────────────────
+  admissionsSummary: () => ipcRenderer.invoke('admissions:summary'),
+  admissionsClasses: () => ipcRenderer.invoke('admissions:classes:list'),
+  admissionsClassCreate: (input: AdmissionClassCreate) => ipcRenderer.invoke('admissions:classes:create', input),
+  admissionsStudentCreate: (input: AdmissionStudentCreate) => ipcRenderer.invoke('admissions:students:create', input),
+  admissionsStudents: (query?: string, classId?: number) => ipcRenderer.invoke('admissions:students:list', { query, classId }),
+  admissionsDetail: (admissionId: number) => ipcRenderer.invoke('admissions:students:detail', admissionId),
+  admissionsPaymentCreate: (input: AdmissionPaymentCreate) => ipcRenderer.invoke('admissions:payments:create', input),
+  admissionsStudentsExportExcel: (content: Uint8Array) => ipcRenderer.invoke('admissions:students:export-excel', content)
 }
 
 contextBridge.exposeInMainWorld('api', api)

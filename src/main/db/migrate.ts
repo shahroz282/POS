@@ -21,6 +21,10 @@ function getMigrationsDir(): string {
     if (fs.existsSync(candidate)) return candidate
     dir = path.dirname(dir)
   }
+
+  const packagedMigrationsDir = path.join(process.resourcesPath, 'migrations')
+  if (fs.existsSync(packagedMigrationsDir)) return packagedMigrationsDir
+
   throw new Error('migrations/ directory not found')
 }
 
@@ -55,5 +59,19 @@ export function runMigrations(db: DB): void {
     db.exec(sql)
 
     console.log(`[migrate] Applied: ${migrationName}`)
+  }
+
+  const transactionColumns = db.prepare('PRAGMA table_info(stamp_paper_transactions)').all() as Array<{ name: string }>
+  if (!transactionColumns.some((column) => column.name === 'has_ticket_number')) {
+    db.exec(`
+      DROP TRIGGER IF EXISTS validate_simple_stamp_ticket_insert;
+      DROP TRIGGER IF EXISTS validate_simple_stamp_ticket_update;
+      ALTER TABLE stamp_paper_transactions
+        ADD COLUMN has_ticket_number INTEGER NOT NULL DEFAULT 0 CHECK (has_ticket_number IN (0, 1));
+      UPDATE stamp_paper_transactions
+      SET has_ticket_number = CASE WHEN ticket_number IS NOT NULL AND length(trim(ticket_number)) > 0 THEN 1 ELSE 0 END;
+      INSERT OR IGNORE INTO schema_migrations(id, name) VALUES (7, '007_optional_ticket_number');
+    `)
+    console.warn('[migrate] Repaired missing has_ticket_number column')
   }
 }

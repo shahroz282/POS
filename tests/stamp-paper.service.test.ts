@@ -176,7 +176,7 @@ describe('StampPaperService', () => {
       transactionId: 'aa65f269-e1ae-4d38-a250-a20db52a0e44',
       idempotencyKey: 'bb65f269-e1ae-4d38-a250-a20db52a0e44',
       referenceName: 'Walk-in referral',
-      ticketNumber: 'TICKET-158',
+      hasTicketNumber: true,
       customerName: 'Test Customer',
       registration: 'REG-22',
       status: 'PENDING' as const,
@@ -194,7 +194,8 @@ describe('StampPaperService', () => {
     const sale = simpleService.createSimpleSale(input)
     expect(sale.status).toBe('PENDING')
     expect(sale.reference_name).toBe('Walk-in referral')
-    expect(sale.ticket_number).toBe('TICKET-158')
+    expect(sale.ticket_number).toBeNull()
+    expect(sale.has_ticket_number).toBe(1)
     expect(sale.customer_name).toBe('Test Customer')
     expect(sale.registration).toBe('REG-22')
     expect(sale.total_payable_paisa).toBe(260_025)
@@ -211,12 +212,11 @@ describe('StampPaperService', () => {
     expect(settled.payments).toHaveLength(2)
   })
 
-  it('requires ticket number and registration with helpful model and database validation', () => {
+  it('allows transactions without a ticket number but requires registration', () => {
     const invalidModel = SimpleStampSaleCreateSchema.safeParse({
       transactionId: 'aa65f269-e1ae-4d38-a250-a20db52a0e44',
       idempotencyKey: 'bb65f269-e1ae-4d38-a250-a20db52a0e44',
       referenceName: 'Referral',
-      ticketNumber: '  ',
       customerName: 'Customer',
       registration: '',
       status: 'PENDING',
@@ -228,7 +228,6 @@ describe('StampPaperService', () => {
     })
     expect(invalidModel.success).toBe(false)
     if (!invalidModel.success) {
-      expect(invalidModel.error.issues.map((issue) => issue.message)).toContain('Enter the ticket number.')
       expect(invalidModel.error.issues.map((issue) => issue.message)).toContain('Enter the registration.')
     }
 
@@ -237,8 +236,8 @@ describe('StampPaperService', () => {
         txn_no, transaction_id, idempotency_key, reference_name, ticket_number,
         bank_employee_name, customer_name, register_no, price, sale_price_paisa,
         service_charges_paisa, other_fees_paisa, total_payable_paisa, status, created_by
-      ) VALUES ('TEST-T1', 'cc65f269-e1ae-4d38-a250-a20db52a0e44', 'dd65f269-e1ae-4d38-a250-a20db52a0e44', 'Ref', '  ', '', 'Customer', 'REG-1', 0, 0, 0, 0, 0, 'PENDING', ?)
-    `).run(userId)).toThrow('Ticket number is required. Enter the ticket number.')
+      ) VALUES ('TEST-T1', 'cc65f269-e1ae-4d38-a250-a20db52a0e44', 'dd65f269-e1ae-4d38-a250-a20db52a0e44', 'Ref', NULL, '', 'Customer', 'REG-1', 0, 0, 0, 0, 0, 'PENDING', ?)
+    `).run(userId)).not.toThrow()
 
     expect(() => db.prepare(`
       INSERT INTO stamp_paper_transactions (

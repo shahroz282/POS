@@ -41,7 +41,7 @@ export default function StampPaperPage() {
   const [transactionId, setTransactionId] = useState(() => crypto.randomUUID())
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
   const [referenceName, setReferenceName] = useState('')
-  const [ticketNumber, setTicketNumber] = useState('')
+  const [hasTicketNumber, setHasTicketNumber] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [registration, setRegistration] = useState('')
   const [status, setStatus] = useState<TransactionStatus>('PENDING')
@@ -65,7 +65,7 @@ export default function StampPaperPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [requiredFieldErrors, setRequiredFieldErrors] = useState<{ ticketNumber?: string; registration?: string }>({})
+  const [requiredFieldErrors, setRequiredFieldErrors] = useState<{ registration?: string }>({})
   const attachmentsRef = useRef(attachments)
   const previewRef = useRef(preview)
   attachmentsRef.current = attachments
@@ -149,11 +149,10 @@ export default function StampPaperPage() {
     setError('')
     setNotice('')
     const requiredErrors = {
-      ticketNumber: ticketNumber.trim() ? undefined : 'Enter the ticket number.',
       registration: registration.trim() ? undefined : 'Enter the registration.'
     }
     setRequiredFieldErrors(requiredErrors)
-    if (requiredErrors.ticketNumber || requiredErrors.registration) {
+    if (requiredErrors.registration) {
       setError('Please complete the highlighted required fields.')
       return
     }
@@ -180,7 +179,7 @@ export default function StampPaperPage() {
         transactionId,
         idempotencyKey,
         referenceName,
-        ticketNumber,
+        hasTicketNumber,
         customerName,
         registration,
         status,
@@ -203,7 +202,7 @@ export default function StampPaperPage() {
       setTransactionId(crypto.randomUUID())
       setIdempotencyKey(crypto.randomUUID())
       setReferenceName('')
-      setTicketNumber('')
+      setHasTicketNumber(false)
       setRequiredFieldErrors({})
       setCustomerName('')
       setRegistration('')
@@ -300,7 +299,17 @@ export default function StampPaperPage() {
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <TextField label="Reference name" value={referenceName} onChange={setReferenceName} required maxLength={150} />
-            <TextField label="Ticket number" value={ticketNumber} onChange={(value) => { setTicketNumber(value); setRequiredFieldErrors((current) => ({ ...current, ticketNumber: undefined })) }} required error={requiredFieldErrors.ticketNumber} maxLength={100} />
+            <div>
+              <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={hasTicketNumber}
+                  onChange={(event) => setHasTicketNumber(event.target.checked)}
+                  className="accent-brand-500"
+                />
+                Ticket number
+              </label>
+            </div>
             <TextField label="Customer name" value={customerName} onChange={setCustomerName} required maxLength={150} />
             <TextField label="Registration" value={registration} onChange={(value) => { setRegistration(value); setRequiredFieldErrors((current) => ({ ...current, registration: undefined })) }} required error={requiredFieldErrors.registration} maxLength={150} />
           </div>
@@ -346,13 +355,13 @@ export default function StampPaperPage() {
       {activeTab === 'history' && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <section className={sectionClass}>
           <div className="mb-4 grid gap-2 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto]"><input className={inputClass} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void loadSales() } }} aria-label="Search stamp transactions" placeholder="Invoice, ticket, reference, customer or registration" /><input className={inputClass} type="date" aria-label="From date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /><input className={inputClass} type="date" aria-label="To date" value={toDate} onChange={(event) => setToDate(event.target.value)} /><button type="button" onClick={() => void loadSales()} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800">Search</button></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Invoice / Date', 'Reference', 'Ticket', 'Customer', 'Registration', 'Status', 'Total', 'Received', 'Balance'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{sales.map((sale) => <tr key={sale.id} onClick={() => void openTransaction(sale)} className={`cursor-pointer hover:bg-gray-800/60 ${selectedSale?.id === sale.id ? 'bg-gray-800/50' : ''}`}><td className="px-2 py-3"><span className="block text-gray-200">{sale.invoice_number}</span><span className="text-gray-500">{sale.transaction_date}</span></td><td className="px-2 py-3 text-gray-300">{sale.reference_name}</td><td className="px-2 py-3 text-gray-300">{sale.ticket_number || '—'}</td><td className="px-2 py-3 text-gray-300">{sale.customer_name}</td><td className="px-2 py-3 text-gray-400">{sale.registration || '—'}</td><td className="px-2 py-3 text-gray-300">{sale.status}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.total_payable_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.amount_received_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.outstanding_balance_paisa)}</td></tr>)}</tbody></table>{sales.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No stamp paper transactions found.</p>}</div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Invoice / Date', 'Reference', 'Ticket', 'Customer', 'Registration', 'Status', 'Total', 'Received', 'Balance'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{sales.map((sale) => <tr key={sale.id} onClick={() => void openTransaction(sale)} className={`cursor-pointer hover:bg-gray-800/60 ${selectedSale?.id === sale.id ? 'bg-gray-800/50' : ''}`}><td className="px-2 py-3"><span className="block text-gray-200">{sale.invoice_number}</span><span className="text-gray-500">{sale.transaction_date}</span></td><td className="px-2 py-3 text-gray-300">{sale.reference_name}</td><td className="px-2 py-3 text-gray-300">{sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</td><td className="px-2 py-3 text-gray-300">{sale.customer_name}</td><td className="px-2 py-3 text-gray-400">{sale.registration || '—'}</td><td className="px-2 py-3 text-gray-300">{sale.status}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.total_payable_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.amount_received_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.outstanding_balance_paisa)}</td></tr>)}</tbody></table>{sales.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No stamp paper transactions found.</p>}</div>
         </section>
 
         <section className={sectionClass}>
           {!selectedSale ? <div className="py-10 text-center text-sm text-gray-500">Select a transaction to view details.</div> : <div className="space-y-4">
             <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-semibold text-gray-100">{selectedSale.invoice_number}</h2><p className="mt-1 text-xs text-gray-500">{selectedSale.transaction_id} · {selectedSale.transaction_date}</p></div><span className="text-xs text-gray-300">{selectedSale.status}</span></div>
-            <div className="grid grid-cols-2 gap-3"><Info label="Reference name" value={selectedSale.reference_name} /><Info label="Ticket number" value={selectedSale.ticket_number || '—'} /><Info label="Customer name" value={selectedSale.customer_name} /><Info label="Registration" value={selectedSale.registration || '—'} /><Info label="Remarks" value={selectedSale.remarks || '—'} /></div>
+            <div className="grid grid-cols-2 gap-3"><Info label="Reference name" value={selectedSale.reference_name} /><Info label="Ticket available" value={selectedSale.ticket_number || (selectedSale.has_ticket_number ? 'Yes' : 'No')} /><Info label="Customer name" value={selectedSale.customer_name} /><Info label="Registration" value={selectedSale.registration || '—'} /><Info label="Remarks" value={selectedSale.remarks || '—'} /></div>
             <div className="grid grid-cols-2 gap-3"><Info label="Sale price" value={formatPkr(selectedSale.sale_price_paisa)} /><Info label="Service charges" value={formatPkr(selectedSale.service_charges_paisa)} /><Info label="Other fees" value={formatPkr(selectedSale.other_fees_paisa)} /><Info label="Total payable" value={formatPkr(selectedSale.total_payable_paisa)} /><Info label="Received" value={formatPkr(selectedSale.amount_received_paisa)} /><Info label="Balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} /></div>
             <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Payment history</h3>{selectedSale.payments.length ? <ul className="divide-y divide-gray-800">{selectedSale.payments.map((payment) => <li key={payment.id} className="flex justify-between gap-3 py-2 text-xs"><span className="text-gray-400">{payment.receipt_number} · {payment.method} · {payment.paid_at}</span><span className="text-gray-200">{formatPkr(payment.amount_paisa)}</span></li>)}</ul> : <p className="text-xs text-gray-500">No payments recorded.</p>}</div>
             {selectedSale.status !== 'CANCELLED' && selectedSale.outstanding_balance_paisa > 0 && <form onSubmit={(event) => void recordPayment(event)} className="grid gap-2 border-t border-gray-800 pt-3 sm:grid-cols-[1fr_1fr_auto]"><label><span className={labelClass}>Receive payment (PKR)</span><input className={inputClass} inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required /></label><label><span className={labelClass}>Method</span><select className={inputClass} value={laterPaymentMethod} onChange={(event) => setLaterPaymentMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label><button disabled={busy} className="self-end bg-brand-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Record payment</button></form>}
@@ -381,5 +390,5 @@ function PaymentOptions() {
 }
 
 function Receipt({ sale }: { sale: SimpleStampSaleDetail }) {
-  return <article id="stamp-receipt" className="hidden"><h1>SAQIB PHOTO STATE</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p>{sale.ticket_number && <p>Ticket: {sale.ticket_number}</p>}<p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price: {formatPkr(sale.sale_price_paisa)}</p><p>Service charges: {formatPkr(sale.service_charges_paisa)}</p><p>Other fees: {formatPkr(sale.other_fees_paisa)}</p><p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
+  return <article id="stamp-receipt" className="hidden"><h1>SAQIB PHOTO STATE</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p><p>Ticket available: {sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</p><p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price: {formatPkr(sale.sale_price_paisa)}</p><p>Service charges: {formatPkr(sale.service_charges_paisa)}</p><p>Other fees: {formatPkr(sale.other_fees_paisa)}</p><p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
 }

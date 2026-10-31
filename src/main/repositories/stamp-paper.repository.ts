@@ -21,7 +21,7 @@ export class StampPaperRepository {
   private simpleSaleSelect(): string {
     return `
       SELECT s.id, s.transaction_id, s.txn_no AS invoice_number, s.created_at AS transaction_date,
-        COALESCE(s.reference_name, '') AS reference_name, s.ticket_number, s.customer_name,
+        COALESCE(s.reference_name, '') AS reference_name, s.ticket_number, s.has_ticket_number, s.customer_name,
         s.register_no AS registration, s.status, s.sale_price_paisa, s.service_charges_paisa,
         s.other_fees_paisa, s.total_payable_paisa,
         COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0) AS amount_received_paisa,
@@ -33,7 +33,7 @@ export class StampPaperRepository {
   }
 
   insertSimpleSale(input: {
-    transactionId: string; idempotencyKey: string; invoiceNumber: string; referenceName: string; ticketNumber?: string;
+    transactionId: string; idempotencyKey: string; invoiceNumber: string; referenceName: string; hasTicketNumber: boolean;
     customerName: string; registration: string; status: string; salePricePaisa: number;
     serviceChargesPaisa: number; otherFeesPaisa: number; totalPayablePaisa: number;
     amountReceivedPaisa: number; paymentMethod: string; paymentReferenceNumber?: string;
@@ -41,12 +41,12 @@ export class StampPaperRepository {
   }): number {
     const result = this.db.prepare(`
       INSERT INTO stamp_paper_transactions (
-        txn_no, transaction_id, idempotency_key, reference_name, ticket_number, bank_employee_name, customer_name,
+        txn_no, transaction_id, idempotency_key, reference_name, ticket_number, has_ticket_number, bank_employee_name, customer_name,
         register_no, price, sale_price_paisa, service_charges_paisa, other_fees_paisa,
         total_payable_paisa, status, remarks, created_by
-      ) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, NULL, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(input.invoiceNumber, input.transactionId, input.idempotencyKey, input.referenceName,
-      input.ticketNumber || null, input.customerName, input.registration, Math.round(input.salePricePaisa / 100),
+      input.hasTicketNumber ? 1 : 0, input.customerName, input.registration, Math.round(input.salePricePaisa / 100),
       input.salePricePaisa, input.serviceChargesPaisa, input.otherFeesPaisa, input.totalPayablePaisa,
       input.status, input.remarks || null, input.createdBy)
     const stampId = Number(result.lastInsertRowid)
