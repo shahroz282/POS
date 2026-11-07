@@ -20,6 +20,10 @@ import type {
 import type {
   FilerCustomerCreate, FilerCustomerDocumentRow, FilerCustomerRow, FilerCustomerUpdate
 } from '../schemas'
+import type {
+  UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarEntryRow, UdhaarOutstandingGroup,
+  UdhaarRepaymentCreate, UdhaarRepaymentResult
+} from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -146,4 +150,12 @@ export interface WindowApi {
   filerCustomerDocumentRead: (customerId: number, documentId: number) => Promise<IpcResult<{
     originalFilename: string; mimeType: string; contentBase64: string
   }>>
+
+  // ── Udhaar ──────────────────────────────────────────────────────────────
+  udhaarAllOutstanding: () => Promise<IpcResult<UdhaarOutstandingGroup[]>>
+  udhaarCustomers: (query?: string, status?: UdhaarCustomerRow['status']) => Promise<IpcResult<UdhaarCustomerRow[]>>
+  udhaarCustomerCreate: (input: UdhaarCustomerCreate) => Promise<IpcResult<{ id: number }>>
+  udhaarEntries: (customerId: number) => Promise<IpcResult<UdhaarEntryRow[]>>
+  udhaarChargeCreate: (input: UdhaarEntryCreate) => Promise<IpcResult<{ id: number; balance: number }>>
+  udhaarRepaymentCreate: (input: UdhaarRepaymentCreate) => Promise<IpcResult<UdhaarRepaymentResult>>
 }

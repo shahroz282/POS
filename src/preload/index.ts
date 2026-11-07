@@ -9,7 +9,8 @@ import type {
   SchemePaymentCreate, SchemeApplicationRow, SchemeUpdate, SchemeRow, SchemeDocumentCategoryType,
   SchemeApplicationSearch, SchemeApplicationUpdate,
   SchemeCustomFieldCreate, SchemeDocumentRequirementCreate,
-  FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow
+  FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow,
+  UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate
 } from '@shared/schemas'
 
 /**
@@ -136,7 +137,16 @@ const api: WindowApi = {
   filerCustomerDocumentDiscard: (token: string) => ipcRenderer.invoke('filer-customers:documents:discard', { token }),
   filerCustomerDocuments: (customerId: number) => ipcRenderer.invoke('filer-customers:documents:list', customerId),
   filerCustomerDocumentRead: (customerId: number, documentId: number) =>
-    ipcRenderer.invoke('filer-customers:documents:read', { customerId, documentId })
+    ipcRenderer.invoke('filer-customers:documents:read', { customerId, documentId }),
+
+  // ── Udhaar ──────────────────────────────────────────────────────────────
+  udhaarAllOutstanding: () => ipcRenderer.invoke('udhaar:outstanding:list'),
+  udhaarCustomers: (query?: string, status?: UdhaarCustomerRow['status']) =>
+    ipcRenderer.invoke('udhaar:customers:list', { query, status }),
+  udhaarCustomerCreate: (input: UdhaarCustomerCreate) => ipcRenderer.invoke('udhaar:customers:create', input),
+  udhaarEntries: (customerId: number) => ipcRenderer.invoke('udhaar:entries:list', { customerId }),
+  udhaarChargeCreate: (input: UdhaarEntryCreate) => ipcRenderer.invoke('udhaar:charges:create', input),
+  udhaarRepaymentCreate: (input: UdhaarRepaymentCreate) => ipcRenderer.invoke('udhaar:repayments:create', input)
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -133,6 +133,32 @@ describe('runMigrations', () => {
     expect(columns.some((column) => column.name === 'has_ticket_number')).toBe(true)
   })
 
+  it('preserves existing customer udhaar entries when adding repayment metadata', () => {
+    const migrationsDir = path.join(__dirname, '..', 'migrations')
+    for (let id = 1; id <= 13; id += 1) {
+      const file = fs.readdirSync(migrationsDir).find((name) => name.startsWith(`${String(id).padStart(3, '0')}_`))
+      if (!file) throw new Error(`Missing migration ${id}`)
+      db.exec(fs.readFileSync(path.join(migrationsDir, file), 'utf8'))
+    }
+    const userId = Number(db.prepare(
+      "INSERT INTO users (name, username, password_hash, role) VALUES ('Admin', 'admin', 'hash', 'ADMIN')"
+    ).run().lastInsertRowid)
+    const customerId = Number(db.prepare(
+      "INSERT INTO customers (name, phone) VALUES ('Legacy Customer', '03001234567')"
+    ).run().lastInsertRowid)
+    const entryId = Number(db.prepare(`
+      INSERT INTO udhaar_entries (customer_id, type, amount, note, created_by)
+      VALUES (?, 'CHARGE', 700, 'Legacy sale credit', ?)
+    `).run(customerId, userId).lastInsertRowid)
+
+    runMigrations(db)
+
+    expect(db.prepare('SELECT id, receipt_no, method FROM udhaar_entries WHERE id = ?').get(entryId))
+      .toMatchObject({ id: entryId, receipt_no: null, method: null })
+    expect(db.prepare('SELECT balance FROM v_udhaar_balance WHERE customer_id = ?').get(customerId))
+      .toMatchObject({ balance: 700 })
+  })
+
   it('creates the settings table with default values', () => {
     runMigrations(db)
     const row = db

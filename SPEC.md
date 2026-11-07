@@ -27,7 +27,7 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 5. Admissions: class folders (9th, 10th, add folder) -> add/search student -> admission details -> save -> collect fee -> receipt -> Excel export.
 6. Schemes: scheme folders (e.g. CM APNA GHAR 2026, add folder) -> add/search application -> details (date, CNIC, mobile, category) -> application fee -> status -> remarks -> save -> payment -> receipt -> Excel export.
 7. Daily closing: opening cash, cash in/out, sales cash, refunds, expenses, expected vs actual closing cash, day lock, date-range reports.
-8. Udhaar: customer ledger, charges, repayments, outstanding balance, history, reminders.
+8. Udhaar: unified outstanding view across customer Udhaar/sale credit, admissions, schemes, stamp paper, and filer customers, grouped by exact CNIC or phone with module details; customer ledger supports search, manual charges, repayments with method/reference/receipt, and history. Cash repayments are included in cash-in entries; edits on locked dates are rejected.
 9. Stock and inventory: categories, products, purchases, stock movements, returns, low-stock alerts, profit report.
 10. Reports: sales, profit, stock, udhaar, customer, admissions, schemes; export Excel/PDF.
 11. Settings: shop details, receipt format, users, tax/discount rules, backup settings.
