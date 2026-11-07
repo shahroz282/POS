@@ -17,6 +17,7 @@ import BackupPage from '../pages/BackupPage'
 import LoginPage from '../pages/LoginPage'
 import SetupAdminPage from '../pages/SetupAdminPage'
 import UsersPage from '../pages/UsersPage'
+import FilerCustomersPage from '../pages/FilerCustomersPage'
 
 export type PageId =
   | 'login'
@@ -25,6 +26,7 @@ export type PageId =
   | 'sales'
   | 'stamp-paper'
   | 'admissions'
+  | 'filer-customers'
   | 'schemes'
   | 'daily-closing'
   | 'udhaar'
@@ -41,6 +43,7 @@ const PAGE_MAP: Record<AppPageId, React.ReactNode> = {
   sales: <SalesPage />,
   'stamp-paper': <StampPaperPage />,
   admissions: <AdmissionsPage />,
+  'filer-customers': <FilerCustomersPage />,
   schemes: <SchemesPage />,
   'daily-closing': <DailyClosingPage />,
   udhaar: <UdhaarPage />,
@@ -56,7 +59,7 @@ const PAGE_MAP: Record<AppPageId, React.ReactNode> = {
  * Returns the page IDs this role can access.
  */
 export function getAllowedPages(role: Role): AppPageId[] {
-  const pages: AppPageId[] = ['dashboard', 'sales', 'stamp-paper', 'admissions', 'schemes', 'udhaar']
+  const pages: AppPageId[] = ['dashboard', 'sales', 'stamp-paper', 'admissions', 'filer-customers', 'schemes', 'udhaar']
 
   if (Permissions.canDailyClosing(role)) pages.push('daily-closing')
   if (Permissions.canPurchase(role)) pages.push('inventory')

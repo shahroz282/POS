@@ -34,7 +34,7 @@ export class UserRepository {
   listAll(): UserDbRow[] {
     return this.db.prepare(
       'SELECT id, name, username, password_hash, role, is_active, created_at FROM users ORDER BY id'
-    ).all() as UserDbRow[]
+    ).all() as unknown as UserDbRow[]
   }
 
   insert(name: string, username: string, passwordHash: string, role: string): number {

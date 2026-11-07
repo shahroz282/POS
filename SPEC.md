@@ -32,6 +32,7 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 10. Reports: sales, profit, stock, udhaar, customer, admissions, schemes; export Excel/PDF.
 11. Settings: shop details, receipt format, users, tax/discount rules, backup settings.
 12. Backup and restore: manual, automatic, external USB, restore with verification, history.
+13. Filer customers: add/search/edit filing clients, track total fee and advance paid, derive pending balance/payment status, and securely store/view filing proof.
 
 ## 3. Status enums (single source of truth)
 - Role: ADMIN, MANAGER, CASHIER
@@ -39,10 +40,11 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 - UdhaarType: CHARGE, REPAYMENT
 - StampStatus: PENDING, COMPLETED, CANCELLED
 - AdmissionStatus: ACTIVE, COMPLETED, CANCELLED
-- SchemeStatus: PENDING, APPROVED, REJECTED, CANCELLED
-  - PENDING -> APPROVED | REJECTED; APPROVED -> CANCELLED. REJECTED and CANCELLED are final.
+- Scheme application status: RECEIVED, UNDER_REVIEW, SUBMITTED, APPROVED, REJECTED, PENDING_DOCUMENTS, COMPLETED, CANCELLED
+  - RECEIVED -> UNDER_REVIEW | PENDING_DOCUMENTS | CANCELLED; UNDER_REVIEW -> SUBMITTED | APPROVED | REJECTED | PENDING_DOCUMENTS | CANCELLED; SUBMITTED -> UNDER_REVIEW | APPROVED | REJECTED | PENDING_DOCUMENTS | CANCELLED; PENDING_DOCUMENTS -> UNDER_REVIEW | SUBMITTED | CANCELLED; APPROVED -> COMPLETED | CANCELLED. REJECTED, COMPLETED, and CANCELLED are final.
+  - Payment status is derived from the application fee ledger and is independent of processing status.
   - Fee payment is NOT a status. It is derived from the `payments` table.
-- PayMethod: CASH, BANK, EASYPAISA, JAZZCASH
+- PayMethod: CASH, BANK, EASYPAISA, JAZZCASH, OTHER (used by scheme application payments)
 - CashType: CASH_IN, CASH_OUT
 - MoveType: PURCHASE, SALE, RETURN, ADJUSTMENT
 - BackupStatus: SUCCESS, FAILED

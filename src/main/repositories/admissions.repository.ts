@@ -75,16 +75,17 @@ export class AdmissionsRepository {
 
   insertAdmission(input: {
     studentId: number; classId: number; admissionDate: string; fee: number;
-    program?: string; educationBoard?: string; academicSession: string; remarks?: string; createdBy: number
+    program?: string; educationBoard?: string; subjects?: string;
+    academicSession: string; remarks?: string; createdBy: number
   }): number {
     const result = this.db.prepare(`
       INSERT INTO admissions (
         student_id, class_id, admission_date, fee, status, remarks, created_by,
-        program, education_board, academic_session
-      ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+        program, education_board, academic_session, subjects
+      ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?)
     `).run(input.studentId, input.classId, input.admissionDate, input.fee,
       input.remarks || null, input.createdBy, input.program || null,
-      input.educationBoard || null, input.academicSession)
+      input.educationBoard || null, input.academicSession, input.subjects || null)
     return Number(result.lastInsertRowid)
   }
 
@@ -103,18 +104,46 @@ export class AdmissionsRepository {
     return Boolean(this.db.prepare('SELECT id FROM admissions WHERE id = ?').get(admissionId))
   }
 
-  listStudents(query: string, classId?: number): AdmissionStudentRow[] {
+  listStudents(
+    query: string, classId?: number, educationBoard?: string,
+    paymentStatus?: AdmissionStudentRow['payment_status'],
+    slipStatus?: AdmissionStudentRow['slip_status']
+  ): AdmissionStudentRow[] {
     const like = `%${query}%`
     return this.db.prepare(`
-      SELECT ${this.studentSelect()}
-      FROM admissions a
-      JOIN students s ON s.id = a.student_id
-      JOIN class_folders c ON c.id = a.class_id
-      WHERE (? = '' OR s.student_no LIKE ? OR s.full_name LIKE ? OR s.father_name LIKE ?
-        OR COALESCE(s.phone, '') LIKE ? OR COALESCE(s.father_phone, '') LIKE ?)
-        AND (? IS NULL OR a.class_id = ?)
-      ORDER BY a.admission_date DESC, a.id DESC
-    `).all(query, like, like, like, like, like, classId ?? null, classId ?? null) as unknown as AdmissionStudentRow[]
+      SELECT * FROM (
+        SELECT ${this.studentSelect()}
+        FROM admissions a
+        JOIN students s ON s.id = a.student_id
+        JOIN class_folders c ON c.id = a.class_id
+      ) students
+      WHERE (? = '' OR student_no LIKE ? OR full_name LIKE ? OR father_name LIKE ?
+        OR COALESCE(phone, '') LIKE ? OR COALESCE(father_phone, '') LIKE ?
+        OR COALESCE(father_cnic, '') LIKE ? OR COALESCE(b_form_number, '') LIKE ?
+        OR COALESCE(roll_number, '') LIKE ? OR COALESCE(registration_number, '') LIKE ?)
+        AND (? IS NULL OR class_id = ?)
+        AND (? = '' OR COALESCE(education_board, '') = ?)
+        AND (? IS NULL OR payment_status = ?)
+        AND (? IS NULL OR slip_status = ?)
+      ORDER BY admission_date DESC, admission_id DESC
+    `).all(
+      query, like, like, like, like, like, like, like, like, like,
+      classId ?? null, classId ?? null, educationBoard ?? '', educationBoard ?? '',
+      paymentStatus ?? null, paymentStatus ?? null,
+      slipStatus ?? null, slipStatus ?? null
+    ) as unknown as AdmissionStudentRow[]
+  }
+
+  updateSlipDetails(input: {
+    admissionId: number; subjects: string; rollNumber: string; registrationNumber: string;
+    expectedSlipDate: string; slipStatus: AdmissionStudentRow['slip_status']
+  }): void {
+    this.db.prepare(`
+      UPDATE admissions
+      SET subjects = ?, roll_number = ?, registration_number = ?, expected_slip_date = ?, slip_status = ?
+      WHERE id = ?
+    `).run(input.subjects || null, input.rollNumber || null, input.registrationNumber || null,
+      input.expectedSlipDate || null, input.slipStatus, input.admissionId)
   }
 
   getAdmission(admissionId: number): AdmissionDetail | undefined {
@@ -212,11 +241,18 @@ export class AdmissionsRepository {
       s.father_phone, s.whatsapp, s.date_of_birth, s.gender, s.address,
       a.class_id, c.class_name, c.academic_year,
       a.admission_date, a.program, a.education_board, a.status,
+      a.subjects, a.roll_number, a.registration_number, a.expected_slip_date, a.slip_status,
       COALESCE((SELECT SUM(fc.amount) FROM admission_fee_charges fc WHERE fc.admission_id = a.id), 0) AS total_charges,
       COALESCE((SELECT SUM(fc.discount_amount) FROM admission_fee_charges fc WHERE fc.admission_id = a.id), 0) AS total_discounts,
       COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.admission_id = a.id), 0) AS total_paid,
       COALESCE((SELECT SUM(fc.amount - fc.discount_amount) FROM admission_fee_charges fc WHERE fc.admission_id = a.id), 0)
-        - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.admission_id = a.id), 0) AS balance
+        - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.admission_id = a.id), 0) AS balance,
+      CASE
+        WHEN COALESCE((SELECT SUM(fc.amount - fc.discount_amount) FROM admission_fee_charges fc WHERE fc.admission_id = a.id), 0)
+          <= COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.admission_id = a.id), 0) THEN 'PAID'
+        WHEN COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.admission_id = a.id), 0) > 0 THEN 'PARTIAL'
+        ELSE 'UNPAID'
+      END AS payment_status
     `
   }
 }

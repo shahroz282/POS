@@ -12,6 +12,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { id: 'sales',         label: 'Normal Sales',   icon: '🛒' },
   { id: 'stamp-paper',   label: 'Stamp Paper',    icon: '📜' },
   { id: 'admissions',    label: 'Admissions',     icon: '🎓' },
+  { id: 'filer-customers', label: 'Filer Customers', icon: '🧾' },
   { id: 'schemes',       label: 'Schemes',        icon: '📋' },
   { id: 'daily-closing', label: 'Daily Closing',  icon: '📅' },
   { id: 'udhaar',        label: 'Udhaar',         icon: '💳' },

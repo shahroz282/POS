@@ -92,12 +92,30 @@ describe('runMigrations', () => {
       INSERT INTO payments (receipt_no, admission_id, amount, method, created_by)
       VALUES ('ADM-LEGACY-0001', ?, 400, 'CASH', ?)
     `).run(admissionId, userId)
+    const schemeId = Number(db.prepare(`
+      INSERT INTO schemes (name, category, default_fee) VALUES ('Legacy Scheme', 'Housing', 500)
+    `).run().lastInsertRowid)
+    const applicationId = Number(db.prepare(`
+      INSERT INTO scheme_applications (
+        scheme_id, applicant_name, cnic, application_date, application_fee, status, created_by
+      ) VALUES (?, 'Legacy Applicant', '1234512345671', '2025-10-01', 500, 'PENDING', ?)
+    `).run(schemeId, userId).lastInsertRowid)
+    db.prepare(`
+      INSERT INTO payments (receipt_no, scheme_app_id, amount, method, created_by)
+      VALUES ('SCH-LEGACY-0001', ?, 100, 'CASH', ?)
+    `).run(applicationId, userId)
 
     runMigrations(db)
 
     expect(db.prepare('SELECT student_no FROM students WHERE id = ?').get(studentId)).toMatchObject({ student_no: null })
     expect(db.prepare('SELECT SUM(amount) AS paid FROM admission_payment_allocations').get()).toMatchObject({ paid: 400 })
     expect(db.prepare('SELECT balance_after FROM payments WHERE admission_id = ?').get(admissionId)).toMatchObject({ balance_after: 600 })
+    expect(db.prepare('SELECT method FROM payments WHERE scheme_app_id = ?').get(applicationId)).toMatchObject({ method: 'CASH' })
+    expect(db.prepare('SELECT application_no FROM scheme_applications WHERE id = ?').get(applicationId))
+      .toMatchObject({ application_no: 'SCH-SC0001-2025-0001' })
+    expect(db.prepare('SELECT processing_status FROM scheme_applications WHERE id = ?').get(applicationId))
+      .toMatchObject({ processing_status: 'RECEIVED' })
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toHaveLength(0)
   })
 
   it('repairs the ticket availability column when its migration is already recorded', () => {

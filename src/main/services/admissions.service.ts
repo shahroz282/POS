@@ -1,6 +1,6 @@
 import type {
   AdmissionClassCreate, AdmissionDetail, AdmissionPaymentCreate, AdmissionPaymentResult,
-  AdmissionStudentCreate
+  AdmissionStudentCreate, AdmissionSlipUpdate, AdmissionStudentRow
 } from '@shared/schemas'
 import type { DB } from '../db/db'
 import { AuditLogRepository } from '../repositories/audit-log.repository'
@@ -43,6 +43,7 @@ export class AdmissionsService {
         fee: input.admissionFee,
         program: input.program,
         educationBoard: input.educationBoard,
+        subjects: input.subjects,
         academicSession: classRow.academic_year,
         createdBy: userId
       })
@@ -61,8 +62,27 @@ export class AdmissionsService {
     })()
   }
 
-  listStudents(query: string, classId?: number) {
-    return this.repository.listStudents(query, classId)
+  listStudents(
+    query: string, classId?: number, educationBoard?: string,
+    paymentStatus?: AdmissionStudentRow['payment_status'],
+    slipStatus?: AdmissionSlipUpdate['slipStatus']
+  ) {
+    return this.repository.listStudents(query, classId, educationBoard, paymentStatus, slipStatus)
+  }
+
+  updateSlipDetails(input: AdmissionSlipUpdate, userId: number): void {
+    if (!this.repository.admissionExists(input.admissionId)) throw new Error('Admission not found')
+    this.db.transaction(() => {
+      this.repository.updateSlipDetails({
+        ...input,
+        subjects: input.subjects || '',
+        rollNumber: input.rollNumber || '',
+        registrationNumber: input.registrationNumber || '',
+        expectedSlipDate: input.expectedSlipDate || ''
+      })
+      this.audit.insert(userId, 'ADMISSION_SLIP_DETAILS_UPDATED', 'admissions', input.admissionId,
+        `Updated roll/slip workflow to ${input.slipStatus}`)
+    })()
   }
 
   getAdmission(admissionId: number): AdmissionDetail {

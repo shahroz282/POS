@@ -210,7 +210,7 @@ erDiagram
 | Customers and inventory | `customers`, `categories`, `products`, `suppliers`, `purchases`, `purchase_items`, `stock_movements` | Customer records, catalog, purchases, stock ledger |
 | Sales and returns | `sales`, `sale_items`, `sale_returns`, `sale_return_items`, `payments` | Sales, line items, refunds, and payment records |
 | Credit ledger | `udhaar_entries`, `v_udhaar_balance` | Charges and repayments; balance is derived from ledger entries |
-| Other business modules | `stamp_paper_transactions`, `stamp_transaction_payments`, `stamp_transaction_documents`, `stamp_paper_inventory`, `parties`, `stamp_paper_sales`, `class_folders`, `students`, `admissions`, `schemes`, `scheme_applications` | Simplified stamp transactions and attachments; retained serial/party workflow tables; admissions and schemes |
+| Other business modules | `stamp_paper_transactions`, `stamp_transaction_payments`, `stamp_transaction_documents`, `stamp_paper_inventory`, `parties`, `stamp_paper_sales`, `class_folders`, `class_sections`, `students`, `admissions`, `admission_fee_charges`, `admission_payment_allocations`, `schemes`, `scheme_applications` | Simplified stamp transactions and attachments; retained serial/party workflow tables; admissions, fee charges, and allocations |
 | Cash and operations | `expenses`, `cash_entries`, `daily_closings`, `audit_logs`, `backup_logs` | Cash in/out, closeout, audit history, and backup history |
 | Derived inventory view | `v_low_stock` | Active products at/below their low-stock threshold |
 
@@ -248,7 +248,8 @@ Security note: the current `window.ts` does not enable `sandbox: true`; do not d
 | Stamp Paper | Simplified transaction form and history | Reference name, customer, registration, status, paisa payment records, multiple encrypted attachments, and history use the existing stamp transaction table plus additive migration 004. Earlier serial inventory/party tables and APIs remain for data compatibility but are no longer shown in the Stamp Paper screen. |
 | Settings | Placeholder UI currently | Get/update handlers, service, repository, and admin update permission implemented |
 | Dashboard | Placeholder UI | No dashboard data API currently registered |
-| Sales, admissions, schemes, udhaar, inventory, reports, daily closing, backup | Placeholder UI | Schema/spec exists in part; corresponding feature IPC/services are not currently registered |
+| Admissions and fees | Class/session setup, sections, student registration and search, fee ledger, manual and monthly charges, shared payment receipts, CSV export | Validated admissions IPC, repositories/services, audit logging, idempotent collection, payment allocations, migration 008 |
+| Sales, schemes, udhaar, inventory, reports, daily closing, backup | Placeholder UI | Schema/spec exists in part; corresponding feature IPC/services are not currently registered |
 
 The product specification describes the intended complete POS. The following workflows are therefore design requirements, not claims about current working features.
 
@@ -280,7 +281,7 @@ The sale is intended to be atomic: validate available stock, create sale and ite
 | Workflow | Intended path |
 |---|---|
 | Stamp paper | Enter reference name, customer name, registration, status, remarks, payment values, and multiple supporting attachments; save a stamp transaction and collect later payments |
-| Admission | Choose class/year folder; find or add student; save admission; collect fee/payment; issue receipt; export data |
+| Admission | Choose class/year folder; add/search student; create and collect fee charges; issue/reprint receipts; export current student records as CSV. Promotion, document uploads, and dedicated reports remain future work. |
 | Scheme application | Choose scheme; enter applicant/CNIC/mobile/category; save application and status; collect fee/payment; issue receipt; export data |
 | Udhaar | Open customer ledger; record charge or repayment; compute outstanding balance from entries; review history |
 | Inventory | Maintain catalog/categories; record purchases and adjustments; write stock movements; view low-stock/profit reports |

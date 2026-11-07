@@ -42,11 +42,18 @@ export const SchemeStatus = {
 } as const
 export type SchemeStatus = (typeof SchemeStatus)[keyof typeof SchemeStatus]
 
+export const SchemeApplicationStatusValues = [
+  'RECEIVED', 'UNDER_REVIEW', 'SUBMITTED', 'APPROVED', 'REJECTED',
+  'PENDING_DOCUMENTS', 'COMPLETED', 'CANCELLED'
+] as const
+export type SchemeApplicationStatus = (typeof SchemeApplicationStatusValues)[number]
+
 export const PayMethod = {
   CASH: 'CASH',
   BANK: 'BANK',
   EASYPAISA: 'EASYPAISA',
-  JAZZCASH: 'JAZZCASH'
+  JAZZCASH: 'JAZZCASH',
+  OTHER: 'OTHER'
 } as const
 export type PayMethod = (typeof PayMethod)[keyof typeof PayMethod]
 

@@ -3,7 +3,13 @@ import type { WindowApi } from '@shared/types'
 import type {
   PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
   ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate,
-  SimpleStampSaleCreate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate
+  SimpleStampSaleCreate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate,
+  AdmissionSlipUpdate, AdmissionDocumentCategoryType,
+  SchemeApplicationCreate, SchemeApplicationStatusUpdate, SchemeCategoryCreate, SchemeCreate,
+  SchemePaymentCreate, SchemeApplicationRow, SchemeUpdate, SchemeRow, SchemeDocumentCategoryType,
+  SchemeApplicationSearch, SchemeApplicationUpdate,
+  SchemeCustomFieldCreate, SchemeDocumentRequirementCreate,
+  FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow
 } from '@shared/schemas'
 
 /**
@@ -61,10 +67,76 @@ const api: WindowApi = {
   admissionsClasses: () => ipcRenderer.invoke('admissions:classes:list'),
   admissionsClassCreate: (input: AdmissionClassCreate) => ipcRenderer.invoke('admissions:classes:create', input),
   admissionsStudentCreate: (input: AdmissionStudentCreate) => ipcRenderer.invoke('admissions:students:create', input),
-  admissionsStudents: (query?: string, classId?: number) => ipcRenderer.invoke('admissions:students:list', { query, classId }),
+  admissionsStudents: (
+    query?: string, classId?: number, educationBoard?: string, paymentStatus?: string, slipStatus?: string
+  ) => ipcRenderer.invoke('admissions:students:list', { query, classId, educationBoard, paymentStatus, slipStatus }),
   admissionsDetail: (admissionId: number) => ipcRenderer.invoke('admissions:students:detail', admissionId),
+  admissionsSlipUpdate: (input: AdmissionSlipUpdate) => ipcRenderer.invoke('admissions:slips:update', input),
+  admissionsDocumentStage: (input: {
+    category: AdmissionDocumentCategoryType; originalFilename: string;
+    mimeType: 'image/jpeg' | 'application/pdf'; contentBase64: string
+  }) => ipcRenderer.invoke('admissions:documents:stage', input),
+  admissionsDocumentCommit: (admissionId: number, token: string) =>
+    ipcRenderer.invoke('admissions:documents:commit', { admissionId, token }),
+  admissionsDocumentDiscard: (token: string) => ipcRenderer.invoke('admissions:documents:discard', { token }),
+  admissionsDocuments: (admissionId: number) => ipcRenderer.invoke('admissions:documents:list', { admissionId }),
+  admissionsDocumentRead: (admissionId: number, documentId: number) =>
+    ipcRenderer.invoke('admissions:documents:read', { admissionId, documentId }),
+  admissionsDocumentRemove: (admissionId: number, documentId: number) =>
+    ipcRenderer.invoke('admissions:documents:remove', { admissionId, documentId }),
   admissionsPaymentCreate: (input: AdmissionPaymentCreate) => ipcRenderer.invoke('admissions:payments:create', input),
-  admissionsStudentsExportExcel: (content: Uint8Array) => ipcRenderer.invoke('admissions:students:export-excel', content)
+  admissionsStudentsExportExcel: (content: Uint8Array) => ipcRenderer.invoke('admissions:students:export-excel', content),
+
+  // ── Schemes ────────────────────────────────────────────────────────────
+  schemesSummary: () => ipcRenderer.invoke('schemes:summary'),
+  schemesList: () => ipcRenderer.invoke('schemes:list'),
+  schemesCreate: (input: SchemeCreate) => ipcRenderer.invoke('schemes:create', input),
+  schemesUpdate: (input: SchemeUpdate) => ipcRenderer.invoke('schemes:update', input),
+  schemesLifecycleUpdate: (schemeId: number, status: SchemeRow['lifecycle_status']) =>
+    ipcRenderer.invoke('schemes:lifecycle:update', { schemeId, lifecycleStatus: status }),
+  schemesCategories: (schemeId: number) => ipcRenderer.invoke('schemes:categories:list', schemeId),
+  schemesCategoryCreate: (input: SchemeCategoryCreate) => ipcRenderer.invoke('schemes:categories:create', input),
+  schemesCustomFields: (schemeId: number) => ipcRenderer.invoke('schemes:fields:list', schemeId),
+  schemesCustomFieldCreate: (input: SchemeCustomFieldCreate) => ipcRenderer.invoke('schemes:fields:create', input),
+  schemesDocumentRequirements: (schemeId: number) => ipcRenderer.invoke('schemes:document-requirements:list', schemeId),
+  schemesDocumentRequirementCreate: (input: SchemeDocumentRequirementCreate) =>
+    ipcRenderer.invoke('schemes:document-requirements:create', input),
+  schemesApplicationCreate: (input: SchemeApplicationCreate) => ipcRenderer.invoke('schemes:applications:create', input),
+  schemesApplications: (
+    query?: string, schemeId?: number, status?: SchemeApplicationRow['status'],
+    fromDate?: string, toDate?: string, paymentStatus?: SchemeApplicationSearch['paymentStatus']
+  ) => ipcRenderer.invoke('schemes:applications:list', { query, schemeId, status, fromDate, toDate, paymentStatus }),
+  schemesApplicationDetail: (applicationId: number) => ipcRenderer.invoke('schemes:applications:detail', applicationId),
+  schemesApplicationUpdate: (input: SchemeApplicationUpdate) => ipcRenderer.invoke('schemes:applications:update', input),
+  schemesApplicationStatus: (input: SchemeApplicationStatusUpdate) => ipcRenderer.invoke('schemes:applications:status', input),
+  schemesPaymentCreate: (input: SchemePaymentCreate) => ipcRenderer.invoke('schemes:payments:create', input),
+  schemesPaymentReverse: (paymentId: number, reason: string) => ipcRenderer.invoke('schemes:payments:reverse', { paymentId, reason }),
+  schemesExportExcel: (content: Uint8Array) => ipcRenderer.invoke('schemes:export-excel', content),
+  schemesDocumentStage: (input: { category: SchemeDocumentCategoryType; originalFilename: string; mimeType: string; contentBase64: string }) =>
+    ipcRenderer.invoke('schemes:documents:stage', input),
+  schemesDocumentDiscard: (token: string) => ipcRenderer.invoke('schemes:documents:discard', { token }),
+  schemesDocumentCommit: (applicationId: number, token: string, replaceDocumentId?: number, requirementId?: number) =>
+    ipcRenderer.invoke('schemes:documents:commit', { applicationId, token, replaceDocumentId, requirementId }),
+  schemesDocuments: (applicationId: number) => ipcRenderer.invoke('schemes:documents:list', { applicationId }),
+  schemesDocumentRead: (applicationId: number, documentId: number) =>
+    ipcRenderer.invoke('schemes:documents:read', { applicationId, documentId }),
+  schemesDocumentRemove: (applicationId: number, documentId: number) =>
+    ipcRenderer.invoke('schemes:documents:remove', { applicationId, documentId }),
+
+  // ── Filer customers ─────────────────────────────────────────────────────
+  filerCustomersList: (query?: string, paymentStatus?: FilerCustomerRow['payment_status']) =>
+    ipcRenderer.invoke('filer-customers:list', { query, paymentStatus }),
+  filerCustomerCreate: (input: FilerCustomerCreate) => ipcRenderer.invoke('filer-customers:create', input),
+  filerCustomerUpdate: (input: FilerCustomerUpdate) => ipcRenderer.invoke('filer-customers:update', input),
+  filerCustomerDocumentStage: (input: {
+    originalFilename: string; mimeType: 'image/jpeg' | 'image/png' | 'application/pdf'; contentBase64: string
+  }) => ipcRenderer.invoke('filer-customers:documents:stage', input),
+  filerCustomerDocumentCommit: (customerId: number, token: string) =>
+    ipcRenderer.invoke('filer-customers:documents:commit', { customerId, token }),
+  filerCustomerDocumentDiscard: (token: string) => ipcRenderer.invoke('filer-customers:documents:discard', { token }),
+  filerCustomerDocuments: (customerId: number) => ipcRenderer.invoke('filer-customers:documents:list', customerId),
+  filerCustomerDocumentRead: (customerId: number, documentId: number) =>
+    ipcRenderer.invoke('filer-customers:documents:read', { customerId, documentId })
 }
 
 contextBridge.exposeInMainWorld('api', api)

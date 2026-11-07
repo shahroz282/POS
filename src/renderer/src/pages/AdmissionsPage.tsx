@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Role } from '@shared/constants'
 import type {
-  AdmissionClassRow, AdmissionDetail, AdmissionPaymentResult, AdmissionPaymentRow, AdmissionStudentRow
+  AdmissionClassRow, AdmissionDetail, AdmissionPaymentResult, AdmissionPaymentRow, AdmissionStudentRow,
+  AdmissionDocumentCategoryType, AdmissionDocumentRow
 } from '@shared/schemas'
 
 type Tab = 'overview' | 'students' | 'new-student' | 'classes' | 'manage-fees'
@@ -42,10 +43,15 @@ export default function AdmissionsPage() {
   const [role, setRole] = useState<Role>('CASHIER')
   const [classes, setClasses] = useState<AdmissionClassRow[]>([])
   const [students, setStudents] = useState<AdmissionStudentRow[]>([])
+  const [overviewStudents, setOverviewStudents] = useState<AdmissionStudentRow[]>([])
+  const [boardOptions, setBoardOptions] = useState<string[]>([])
   const [selected, setSelected] = useState<AdmissionDetail | null>(null)
   const [summary, setSummary] = useState({ activeStudents: 0, newThisMonth: 0, collectedToday: 0, collectedThisMonth: 0, outstanding: 0, pendingDues: 0 })
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('')
+  const [boardFilter, setBoardFilter] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState('')
+  const [slipFilter, setSlipFilter] = useState('')
   const [error, setErrorState] = useState('')
   const [notice, setNoticeState] = useState('')
   const setError = (message: string) => {
@@ -67,7 +73,7 @@ export default function AdmissionsPage() {
   const [studentForm, setStudentForm] = useState({
     fullName: '', fatherName: '', fatherCnic: '', bFormNumber: '', phone: '', fatherPhone: '',
     whatsapp: '', dateOfBirth: '', gender: '', address: '', classId: '',
-    admissionDate: today(), program: '', educationBoard: '', admissionFee: '0',
+    admissionDate: today(), program: '', educationBoard: '', subjects: '', admissionFee: '0',
     admissionDiscount: '0', admissionFeeDueDate: ''
   })
   const [paymentAmount, setPaymentAmount] = useState('')
@@ -79,16 +85,34 @@ export default function AdmissionsPage() {
   const classOptions = useMemo(() => classes.map((item) => ({
     id: String(item.id), name: `${item.class_name} — ${item.academic_year}`
   })), [classes])
-
   const loadClasses = useCallback(async () => {
     const result = await window.api.admissionsClasses()
     if (result.ok) setClasses(result.data)
     else setError(result.error.message)
   }, [])
 
-  const loadStudents = useCallback(async (query = '', classId = '') => {
-    const result = await window.api.admissionsStudents(query, classId ? Number(classId) : undefined)
-    if (result.ok) setStudents(result.data)
+  const loadStudents = useCallback(async (
+    query = '', classId = '', educationBoard = '', paymentStatus = '', slipStatus = ''
+  ) => {
+    const result = await window.api.admissionsStudents(
+      query, classId ? Number(classId) : undefined, educationBoard || undefined,
+      paymentStatus ? paymentStatus as AdmissionStudentRow['payment_status'] : undefined,
+      slipStatus ? slipStatus as AdmissionStudentRow['slip_status'] : undefined
+    )
+    if (result.ok) {
+      setStudents(result.data)
+      setBoardOptions((current) => [...new Set([
+        ...current, ...result.data.map((student) => student.education_board).filter(
+          (board): board is string => Boolean(board)
+        )
+      ])].sort())
+    }
+    else setError(result.error.message)
+  }, [])
+
+  const loadOverviewStudents = useCallback(async () => {
+    const result = await window.api.admissionsStudents()
+    if (result.ok) setOverviewStudents(result.data)
     else setError(result.error.message)
   }, [])
 
@@ -113,7 +137,10 @@ export default function AdmissionsPage() {
   }
 
   const refresh = async () => {
-    await Promise.all([loadClasses(), loadStudents(search, classFilter), loadSummary()])
+    await Promise.all([
+      loadClasses(), loadStudents(search, classFilter, boardFilter, paymentFilter, slipFilter),
+      loadOverviewStudents(), loadSummary()
+    ])
     if (selected) await openAdmission(selected.admission_id)
   }
 
@@ -121,7 +148,7 @@ export default function AdmissionsPage() {
     void (async () => {
       const session = await window.api.authGetSession()
       if (session.ok && session.data) setRole(session.data.role)
-      await Promise.all([loadClasses(), loadStudents('', ''), loadSummary()])
+      await Promise.all([loadClasses(), loadStudents('', ''), loadOverviewStudents(), loadSummary()])
     })()
   }, [loadClasses, loadStudents, loadSummary])
 
@@ -164,13 +191,13 @@ export default function AdmissionsPage() {
       return setError(result.error.message)
     }
     setNotice(`Student admitted. Student ID: ${result.data.studentNo}`)
-    await Promise.all([loadStudents('', ''), loadSummary(), loadClasses()])
+    await Promise.all([loadStudents('', ''), loadOverviewStudents(), loadSummary(), loadClasses()])
     await openAdmission(result.data.admissionId)
     setStudentForm((current) => ({
       ...current, fullName: '', fatherName: '', fatherCnic: '', bFormNumber: '', phone: '',
       fatherPhone: '', whatsapp: '', dateOfBirth: '', gender: '', address: '',
       program: '', educationBoard: '', admissionFee: '0', admissionDiscount: '0',
-      admissionFeeDueDate: ''
+      subjects: '', admissionFeeDueDate: ''
     }))
     setTab('students')
     setBusy(false)
@@ -199,16 +226,17 @@ export default function AdmissionsPage() {
     setPaymentReference('')
     setPaymentNotes('')
     setNotice(`Payment saved. Receipt ${result.data.receiptNumber}`)
-    await Promise.all([loadStudents(), loadSummary()])
+    await Promise.all([loadStudents(), loadOverviewStudents(), loadSummary()])
     setBusy(false)
   }
 
   const exportStudents = () => {
-    const headers = ['Student ID', 'Student', 'Father', 'Phone', 'Class', 'Academic year', 'Admission date', 'Status', 'Charges (PKR)', 'Discounts (PKR)', 'Paid (PKR)', 'Balance (PKR)']
+    const headers = ['Student ID', 'Student', 'Father', 'Phone', 'Class', 'Academic year', 'Board', 'Subjects / stream', 'Admission date', 'Roll No', 'Registration No', 'Fee Status', 'Slip Status', 'Charges (PKR)', 'Discounts (PKR)', 'Paid (PKR)', 'Balance (PKR)']
     const values = students.map((student) => [
       student.student_no, student.full_name, student.father_name, student.phone ?? '',
-      student.class_name, student.academic_year,
-      student.admission_date, student.status, student.total_charges, student.total_discounts,
+      student.class_name, student.academic_year, student.education_board ?? '', student.subjects ?? '',
+      student.admission_date, student.roll_number ?? '', student.registration_number ?? '',
+      student.payment_status, student.slip_status, student.total_charges, student.total_discounts,
       student.total_paid, student.balance
     ])
     const csv = [headers, ...values].map((row) => row.map(csvCell).join(',')).join('\r\n')
@@ -225,18 +253,20 @@ export default function AdmissionsPage() {
     setExportingExcel(true)
     try {
       const XLSX = await import('xlsx')
-      const headers = ['Student ID', 'Student', 'Father', 'Phone', 'Class', 'Academic year', 'Admission date', 'Status', 'Charges (PKR)', 'Discounts (PKR)', 'Paid (PKR)', 'Balance (PKR)']
+      const headers = ['Student ID', 'Student', 'Father', 'Phone', 'Class', 'Academic year', 'Board', 'Subjects / stream', 'Admission date', 'Roll No', 'Registration No', 'Fee Status', 'Slip Status', 'Charges (PKR)', 'Discounts (PKR)', 'Paid (PKR)', 'Balance (PKR)']
       const rows = students.map((student) => [
         student.student_no, student.full_name, student.father_name, student.phone ?? '',
-        student.class_name, student.academic_year, student.admission_date, student.status,
+        student.class_name, student.academic_year, student.education_board ?? '', student.subjects ?? '', student.admission_date,
+        student.roll_number ?? '', student.registration_number ?? '', student.payment_status, student.slip_status,
         student.total_charges, student.total_discounts, student.total_paid, student.balance
       ])
       const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
       worksheet['!cols'] = [
         { wch: 16 }, { wch: 28 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 16 },
-        { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }
+        { wch: 20 }, { wch: 28 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 14 },
+        { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 14 }
       ]
-      worksheet['!autofilter'] = { ref: `A1:L${Math.max(rows.length + 1, 1)}` }
+      worksheet['!autofilter'] = { ref: `A1:Q${Math.max(rows.length + 1, 1)}` }
       const workbook = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Students')
       const content = new Uint8Array(XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }))
@@ -252,7 +282,7 @@ export default function AdmissionsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
-      <style>{`@media print { body * { visibility: hidden !important; } #admission-receipt, #admission-receipt * { visibility: visible !important; } #admission-receipt { display: block !important; position: absolute; inset: 0; width: 80mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } }`}</style>
+      <style>{`@media print { body * { visibility: hidden !important; } #admission-receipt, #admission-receipt *, #admissions-report, #admissions-report * { visibility: visible !important; } #admission-receipt { display: block !important; position: absolute; inset: 0; width: 80mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } #admissions-report { display: block !important; position: absolute; inset: 0; width: 100%; padding: 8mm; color: #000; background: #fff; font: 10px Arial, sans-serif; } #admissions-report table { width: 100%; border-collapse: collapse; } #admissions-report th, #admissions-report td { border: 1px solid #999; padding: 4px; color: #000 !important; } }`}</style>
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-800 pb-4">
         <div><p className="text-xs font-semibold uppercase text-brand-400">Module 5</p><h1 className="mt-1 text-xl font-semibold text-gray-100">Admissions & Fees</h1><p className="mt-1 text-sm text-gray-500">Manage academic class folders, student admissions and fee ledgers.</p></div>
         <div className="flex flex-wrap gap-2">
@@ -278,20 +308,42 @@ export default function AdmissionsPage() {
         </div>
         <section className={sectionClass}>
           <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-gray-100">Students with outstanding fees</h2><button type="button" onClick={() => void refresh()} className="text-xs text-brand-300">Refresh</button></div>
-          <StudentTable students={students.filter((student) => student.balance > 0).slice(0, 10)} onManageFees={(id) => void openFeeManagement(id)} />
+          <StudentTable students={overviewStudents.filter((student) => student.balance > 0).slice(0, 10)} onManageFees={(id) => void openFeeManagement(id)} />
+        </section>
+        <section className={sectionClass}>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-100">Roll-number slips due today or overdue</h2>
+            <span className="text-xs text-amber-300">{overviewStudents.filter((student) =>
+              student.slip_status !== 'SLIP_DELIVERED' && student.expected_slip_date && student.expected_slip_date <= today()
+            ).length} pending</span>
+          </div>
+          <StudentTable students={overviewStudents.filter((student) =>
+            student.slip_status !== 'SLIP_DELIVERED' && student.expected_slip_date && student.expected_slip_date <= today()
+          ).slice(0, 10)} onManageFees={(id) => void openFeeManagement(id)} />
         </section>
       </section>}
 
       {tab === 'students' && <section className="space-y-4">
-        <div className="grid gap-2 sm:grid-cols-[minmax(160px,1fr)_240px_auto_auto]">
-          <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void loadStudents(search, classFilter) }} placeholder="Search ID, student, father or phone" aria-label="Search students" />
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(160px,1fr)_200px_180px_200px_auto_auto_auto]">
+          <input className={inputClass} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void loadStudents(search, classFilter, boardFilter, paymentFilter, slipFilter) }} placeholder="Search name, CNIC, mobile, roll no." aria-label="Search students" />
           <select className={inputClass} value={classFilter} onChange={(event) => setClassFilter(event.target.value)} aria-label="Filter by class">
             <option value="">All class folders</option>{classOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
-          <button type="button" onClick={() => void loadStudents(search, classFilter)} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800">Search</button>
+          <select className={inputClass} value={boardFilter} onChange={(event) => setBoardFilter(event.target.value)} aria-label="Filter by education board">
+            <option value="">All boards</option>{boardOptions.map((board) => <option key={board} value={board}>{board}</option>)}
+          </select>
+          <select className={inputClass} value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} aria-label="Filter by payment status">
+            <option value="">All fee statuses</option><option value="UNPAID">Unpaid</option><option value="PARTIAL">Partial</option><option value="PAID">Paid</option>
+          </select>
+          <select className={inputClass} value={slipFilter} onChange={(event) => setSlipFilter(event.target.value)} aria-label="Filter by roll slip status">
+            <option value="">All slip statuses</option><option value="PENDING">Pending</option><option value="READY_TO_CALL">Ready to Call</option><option value="CALLED_INFORMED">Called & Informed</option><option value="SLIP_DELIVERED">Slip Delivered</option>
+          </select>
+          <button type="button" onClick={() => void loadStudents(search, classFilter, boardFilter, paymentFilter, slipFilter)} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800">Search</button>
           <button type="button" onClick={() => setTab('new-student')} className="bg-brand-600 px-4 text-sm font-semibold text-white hover:bg-brand-500">Add student</button>
+          <button type="button" onClick={() => window.print()} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800">Print report</button>
         </div>
-        <section className={sectionClass}>
+        <section id="admissions-report" className={sectionClass}>
+          <h2 className="mb-3 hidden text-lg font-semibold print:block">Admissions & Fee Report</h2>
           <StudentTable students={students} onManageFees={(id) => void openFeeManagement(id)} />
         </section>
       </section>}
@@ -317,6 +369,17 @@ export default function AdmissionsPage() {
               referenceNumber: payment.reference_no
             }
           })} />
+        <SlipWorkflow admission={selected} canManage={canManage}
+          onSaved={async () => {
+            await Promise.all([
+              openAdmission(selected.admission_id),
+              loadStudents(search, classFilter, boardFilter, paymentFilter, slipFilter),
+              loadOverviewStudents()
+            ])
+            setNotice('Roll-number slip details updated.')
+          }} onError={setError} />
+        <AdmissionDocuments admissionId={selected.admission_id} canManage={canManage}
+          onError={setError} onNotice={setNotice} />
       </section>}
 
       {tab === 'new-student' && <form onInvalidCapture={(event) => {
@@ -348,6 +411,7 @@ export default function AdmissionsPage() {
             <Field label="Admission date" required><CalendarDateInput required value={studentForm.admissionDate} onChange={(value) => updateStudentField('admissionDate', value)} /></Field>
             <Field label="Program / degree"><input className={inputClass} value={studentForm.program} onChange={(event) => updateStudentField('program', event.target.value)} /></Field>
             <Field label="Education board"><input className={inputClass} value={studentForm.educationBoard} onChange={(event) => updateStudentField('educationBoard', event.target.value)} /></Field>
+            <Field label="Subjects / stream"><input className={inputClass} maxLength={300} value={studentForm.subjects} onChange={(event) => updateStudentField('subjects', event.target.value)} placeholder="e.g. Pre-medical, Biology, Chemistry" /></Field>
           </div>
         </section>
         <section className={sectionClass}>
@@ -446,21 +510,209 @@ function StudentTable({ students, onManageFees }: {
   onManageFees: (id: number) => void
 }) {
   return <div className="overflow-x-auto">
-    <table className="w-full min-w-[850px] text-left text-xs">
-      <thead className="border-b border-gray-800 text-gray-500"><tr>{['Student ID / name', 'Father / contact', 'Class / session', 'Status', 'Charges', 'Paid', 'Balance', 'Action'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead>
+    <table className="w-full min-w-[1100px] text-left text-xs">
+      <thead className="border-b border-gray-800 text-gray-500"><tr>{['Student ID / name', 'Father / contact', 'Class / session', 'Board', 'Roll No', 'Admission status', 'Fee status', 'Slip status', 'Charges', 'Paid', 'Balance', 'Action'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead>
       <tbody className="divide-y divide-gray-800">{students.map((student) => <tr key={student.admission_id} className="hover:bg-gray-800/60">
         <td className="px-2 py-3"><span className="block text-brand-300">{student.student_no}</span><span className="text-gray-200">{student.full_name}</span></td>
         <td className="px-2 py-3"><span className="block text-gray-300">{student.father_name}</span><span className="text-gray-500">{student.father_phone || student.phone || '—'}</span></td>
         <td className="px-2 py-3"><span className="block text-gray-200">{student.class_name}</span><span className="text-gray-500">{student.academic_year}</span></td>
+        <td className="px-2 py-3 text-gray-300">{student.education_board || '—'}</td>
+        <td className="px-2 py-3 text-gray-300">{student.roll_number || '—'}</td>
         <td className="px-2 py-3 text-gray-300">{student.status}</td>
+        <td className={`px-2 py-3 ${student.payment_status === 'PAID' ? 'text-emerald-300' : student.payment_status === 'PARTIAL' ? 'text-amber-300' : 'text-red-300'}`}>{student.payment_status}</td>
+        <td className="px-2 py-3 text-gray-300">{student.slip_status.replaceAll('_', ' ')}</td>
         <td className="px-2 py-3 text-gray-300">{formatMoney(student.total_charges - student.total_discounts)}</td>
         <td className="px-2 py-3 text-gray-300">{formatMoney(student.total_paid)}</td>
         <td className={`px-2 py-3 ${student.balance > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{formatMoney(student.balance)}</td>
-        <td className="px-2 py-3"><button type="button" onClick={() => onManageFees(student.admission_id)} className="whitespace-nowrap border border-brand-700 px-2.5 py-1.5 font-medium text-brand-300 hover:bg-brand-950">Manage Fees</button></td>
+        <td className="space-y-1 px-2 py-3 print:hidden">
+          <button type="button" onClick={() => onManageFees(student.admission_id)} className="whitespace-nowrap border border-brand-700 px-2.5 py-1.5 font-medium text-brand-300 hover:bg-brand-950">Manage</button>
+          {whatsAppUrl(student) && <a className="block whitespace-nowrap px-2.5 py-1 text-emerald-300 hover:text-emerald-200" href={whatsAppUrl(student)!} target="_blank" rel="noreferrer">WhatsApp</a>}
+        </td>
       </tr>)}</tbody>
     </table>
     {students.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No students found.</p>}
   </div>
+}
+
+function whatsAppUrl(student: AdmissionStudentRow): string | null {
+  const rawPhone = student.whatsapp || student.father_phone || student.phone
+  if (!rawPhone) return null
+  let number = rawPhone.replace(/\D/g, '')
+  if (number.startsWith('0')) number = `92${number.slice(1)}`
+  if (number.length < 7 || number.length > 15) return null
+  const slipMessage: Record<AdmissionStudentRow['slip_status'], string> = {
+    PENDING: 'being processed',
+    READY_TO_CALL: 'ready for collection',
+    CALLED_INFORMED: 'ready for collection; we have already tried to inform you',
+    SLIP_DELIVERED: 'issued and delivered'
+  }
+  const message = `Assalamu Alaikum ${student.father_name}, the roll number slip for ${student.full_name} is ${slipMessage[student.slip_status]}. Please contact the school for details.`
+  return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
+}
+
+function SlipWorkflow({ admission, canManage, onSaved, onError }: {
+  admission: AdmissionDetail; canManage: boolean; onSaved: () => Promise<void>; onError: (message: string) => void
+}) {
+  const [subjects, setSubjects] = useState(admission.subjects ?? '')
+  const [rollNumber, setRollNumber] = useState(admission.roll_number ?? '')
+  const [registrationNumber, setRegistrationNumber] = useState(admission.registration_number ?? '')
+  const [expectedSlipDate, setExpectedSlipDate] = useState(admission.expected_slip_date ?? '')
+  const [slipStatus, setSlipStatus] = useState<AdmissionStudentRow['slip_status']>(admission.slip_status)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setSubjects(admission.subjects ?? '')
+    setRollNumber(admission.roll_number ?? '')
+    setRegistrationNumber(admission.registration_number ?? '')
+    setExpectedSlipDate(admission.expected_slip_date ?? '')
+    setSlipStatus(admission.slip_status)
+  }, [admission])
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSaving(true)
+    const result = await window.api.admissionsSlipUpdate({
+      admissionId: admission.admission_id, subjects, rollNumber, registrationNumber, expectedSlipDate, slipStatus
+    })
+    setSaving(false)
+    if (!result.ok) return onError(result.error.message)
+    await onSaved()
+  }
+
+  const reminder = whatsAppUrl(admission)
+  return <section className={`${sectionClass} space-y-4`}>
+    <div>
+      <h3 className="text-sm font-semibold text-gray-100">Roll number & slip workflow</h3>
+      <p className="mt-1 text-xs text-gray-500">Track registration details, expected release, and delivery status.</p>
+    </div>
+    {canManage ? <form onSubmit={(event) => void save(event)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Field label="Subjects / stream"><input className={inputClass} maxLength={300} value={subjects} onChange={(event) => setSubjects(event.target.value)} /></Field>
+      <Field label="Official roll number"><input className={inputClass} maxLength={50} value={rollNumber} onChange={(event) => setRollNumber(event.target.value)} /></Field>
+      <Field label="Registration number"><input className={inputClass} maxLength={50} value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} /></Field>
+      <Field label="Expected slip date"><CalendarDateInput value={expectedSlipDate} onChange={setExpectedSlipDate} /></Field>
+      <Field label="Call / delivery status"><select className={inputClass} value={slipStatus} onChange={(event) => setSlipStatus(event.target.value as AdmissionStudentRow['slip_status'])}>
+        <option value="PENDING">Pending</option><option value="READY_TO_CALL">Ready to Call</option><option value="CALLED_INFORMED">Called & Informed</option><option value="SLIP_DELIVERED">Slip Delivered</option>
+      </select></Field>
+      <div className="flex items-end"><button disabled={saving} className="bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50">{saving ? 'Saving…' : 'Save slip details'}</button></div>
+    </form> : <div className="grid gap-3 text-sm text-gray-300 sm:grid-cols-2 lg:grid-cols-3">
+      <p>Subjects: {admission.subjects || '—'}</p><p>Roll number: {admission.roll_number || '—'}</p>
+      <p>Registration no.: {admission.registration_number || '—'}</p>
+      <p>Expected date: {admission.expected_slip_date || '—'}</p><p>Status: {admission.slip_status.replaceAll('_', ' ')}</p>
+    </div>}
+    {reminder && <a href={reminder} target="_blank" rel="noreferrer" className="inline-flex border border-emerald-800 px-3 py-2 text-xs text-emerald-300 hover:bg-emerald-950/40">
+      Prepare WhatsApp reminder
+    </a>}
+  </section>
+}
+
+function AdmissionDocuments({ admissionId, canManage, onError, onNotice }: {
+  admissionId: number; canManage: boolean; onError: (message: string) => void; onNotice: (message: string) => void
+}) {
+  const [documents, setDocuments] = useState<AdmissionDocumentRow[]>([])
+  const [category, setCategory] = useState<AdmissionDocumentCategoryType>('BANK_CHALLAN')
+  const [busy, setBusy] = useState(false)
+
+  const loadDocuments = async () => {
+    const result = await window.api.admissionsDocuments(admissionId)
+    if (result.ok) setDocuments(result.data)
+    else onError(result.error.message)
+  }
+
+  useEffect(() => {
+    if (canManage) void loadDocuments()
+  }, [admissionId, canManage])
+
+  const upload = async (file?: File) => {
+    if (!file) return
+    const mimeType = file.type === 'application/pdf' || file.type === 'image/jpeg' ? file.type : null
+    if (!mimeType || file.size > 10 * 1024 * 1024) {
+      onError('Choose a PDF or JPG file no larger than 10 MB.')
+      return
+    }
+    setBusy(true)
+    let stagedToken: string | null = null
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => typeof reader.result === 'string'
+          ? resolve(reader.result)
+          : reject(new Error('Could not read the selected file'))
+        reader.onerror = () => reject(new Error('Could not read the selected file'))
+        reader.readAsDataURL(file)
+      })
+      const staged = await window.api.admissionsDocumentStage({
+        category, originalFilename: file.name, mimeType,
+        contentBase64: dataUrl.slice(dataUrl.indexOf(',') + 1)
+      })
+      if (!staged.ok) throw new Error(staged.error.message)
+      stagedToken = staged.data.token
+      const saved = await window.api.admissionsDocumentCommit(admissionId, stagedToken)
+      if (!saved.ok) throw new Error(saved.error.message)
+      stagedToken = null
+      await loadDocuments()
+      onNotice('Admission document uploaded securely.')
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Document upload failed.')
+    } finally {
+      if (stagedToken) {
+        const discarded = await window.api.admissionsDocumentDiscard(stagedToken)
+        if (!discarded.ok) onError(discarded.error.message)
+      }
+      setBusy(false)
+    }
+  }
+
+  const openDocument = async (document: AdmissionDocumentRow) => {
+    const result = await window.api.admissionsDocumentRead(admissionId, document.id)
+    if (!result.ok) return onError(result.error.message)
+    const binary = atob(result.data.contentBase64)
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    const url = URL.createObjectURL(new Blob([bytes], { type: result.data.mimeType }))
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    link.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
+  const removeDocument = async (documentId: number) => {
+    const result = await window.api.admissionsDocumentRemove(admissionId, documentId)
+    if (!result.ok) return onError(result.error.message)
+    await loadDocuments()
+    onNotice('Document removed from the admission record.')
+  }
+
+  return <section className={`${sectionClass} space-y-4`}>
+    <div>
+      <h3 className="text-sm font-semibold text-gray-100">Admission documents</h3>
+      <p className="mt-1 text-xs text-gray-500">Encrypted local storage; PDF and JPG only, up to 10 MB per file.</p>
+    </div>
+    {canManage ? <>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Document type"><select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value as AdmissionDocumentCategoryType)}>
+          <option value="BANK_CHALLAN">Paid bank challan copy</option><option value="ADMISSION_FORM">Submitted admission form</option><option value="ROLL_NUMBER_SLIP">Issued roll number slip</option>
+        </select></Field>
+        <label className="border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:bg-gray-800">
+          {busy ? 'Uploading…' : 'Choose PDF/JPG'}
+          <input className="sr-only" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg" disabled={busy} onChange={(event) => {
+            void upload(event.target.files?.[0])
+            event.currentTarget.value = ''
+          }} />
+        </label>
+      </div>
+      <ul className="divide-y divide-gray-800">
+        {documents.map((document) => <li key={document.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+          <span className="text-gray-300">{document.category.replaceAll('_', ' ')} · {document.original_filename}</span>
+          <span className="flex gap-3">
+            <button type="button" onClick={() => void openDocument(document)} className="text-brand-300 hover:text-brand-200">Open</button>
+            <button type="button" onClick={() => void removeDocument(document.id)} className="text-red-300 hover:text-red-200">Remove</button>
+          </span>
+        </li>)}
+      </ul>
+      {documents.length === 0 && <p className="text-xs text-gray-500">No documents uploaded.</p>}
+    </> : <p className="text-xs text-gray-500">Document access is limited to Admin and Manager accounts.</p>}
+  </section>
 }
 
 function FeedbackPopup({ type, message, onClose }: {

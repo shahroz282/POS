@@ -7,6 +7,8 @@ import { registerAuthHandlers } from './ipc/auth.handler'
 import { registerSettingsHandlers } from './ipc/settings.handler'
 import { registerStampPaperHandlers } from './ipc/stamp-paper.handler'
 import { registerAdmissionsHandlers } from './ipc/admissions.handler'
+import { registerSchemesHandlers } from './ipc/schemes.handler'
+import { registerFilerCustomersHandlers } from './ipc/filer-customers.handler'
 
 // Surface any startup crash in the electron-vite dev console
 process.on('uncaughtException', (err) => {
@@ -23,6 +25,8 @@ app.whenReady().then(async () => {
   registerSettingsHandlers()
   registerStampPaperHandlers()
   registerAdmissionsHandlers()
+  registerSchemesHandlers()
+  registerFilerCustomersHandlers()
   createWindow()
 
   app.on('activate', () => {

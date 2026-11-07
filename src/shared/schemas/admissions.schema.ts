@@ -33,6 +33,7 @@ export const AdmissionStudentCreateSchema = z.object({
   admissionDate: isoDate,
   program: optionalText(100),
   educationBoard: optionalText(100),
+  subjects: optionalText(300),
   admissionFee: z.number().int().nonnegative().max(100_000_000).default(0),
   admissionDiscount: z.number().int().nonnegative().max(100_000_000).default(0),
   admissionFeeDueDate: isoDate.optional().or(z.literal(''))
@@ -44,9 +45,47 @@ export type AdmissionStudentCreate = z.infer<typeof AdmissionStudentCreateSchema
 
 export const AdmissionStudentSearchSchema = z.object({
   query: z.string().trim().max(100).default(''),
-  classId: z.number().int().positive().optional()
+  classId: z.number().int().positive().optional(),
+  educationBoard: z.string().trim().max(100).default(''),
+  paymentStatus: z.enum(['PAID', 'PARTIAL', 'UNPAID']).optional(),
+  slipStatus: z.enum(['PENDING', 'READY_TO_CALL', 'CALLED_INFORMED', 'SLIP_DELIVERED']).optional()
 })
 export const AdmissionIdSchema = z.number().int().positive()
+export const AdmissionSlipUpdateSchema = z.object({
+  admissionId: AdmissionIdSchema,
+  subjects: optionalText(300),
+  rollNumber: optionalText(50),
+  registrationNumber: optionalText(50),
+  expectedSlipDate: isoDate.optional().or(z.literal('')),
+  slipStatus: z.enum(['PENDING', 'READY_TO_CALL', 'CALLED_INFORMED', 'SLIP_DELIVERED'])
+})
+export type AdmissionSlipUpdate = z.infer<typeof AdmissionSlipUpdateSchema>
+
+export const AdmissionDocumentCategory = ['BANK_CHALLAN', 'ADMISSION_FORM', 'ROLL_NUMBER_SLIP'] as const
+export type AdmissionDocumentCategoryType = typeof AdmissionDocumentCategory[number]
+export const AdmissionDocumentStageSchema = z.object({
+  category: z.enum(AdmissionDocumentCategory),
+  originalFilename: z.string().trim().min(1).max(180),
+  mimeType: z.enum(['image/jpeg', 'application/pdf']),
+  contentBase64: z.string().min(1).max(14_000_000)
+})
+export const AdmissionDocumentTokenSchema = z.object({ token: z.string().uuid() })
+export const AdmissionDocumentCommitSchema = z.object({
+  admissionId: AdmissionIdSchema,
+  token: z.string().uuid()
+})
+export const AdmissionDocumentReadSchema = z.object({
+  admissionId: AdmissionIdSchema,
+  documentId: z.number().int().positive()
+})
+export type AdmissionDocumentRow = {
+  id: number
+  category: AdmissionDocumentCategoryType
+  original_filename: string
+  mime_type: 'image/jpeg' | 'application/pdf'
+  file_size: number
+  uploaded_at: string
+}
 
 export const AdmissionPaymentCreateSchema = z.object({
   admissionId: z.number().int().positive(),
@@ -87,10 +126,16 @@ export interface AdmissionStudentRow {
   program: string | null
   education_board: string | null
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
+  subjects: string | null
+  roll_number: string | null
+  registration_number: string | null
+  expected_slip_date: string | null
+  slip_status: 'PENDING' | 'READY_TO_CALL' | 'CALLED_INFORMED' | 'SLIP_DELIVERED'
   total_charges: number
   total_discounts: number
   total_paid: number
   balance: number
+  payment_status: 'PAID' | 'PARTIAL' | 'UNPAID'
 }
 
 export interface AdmissionChargeRow {
