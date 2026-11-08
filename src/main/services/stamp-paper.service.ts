@@ -53,6 +53,7 @@ export class StampPaperService {
         const duplicate = this.repository.findSimpleSaleByKey(input.idempotencyKey)
         if (duplicate) return duplicate
 
+        this.ensureDayOpen(this.localDate())
         const now = new Date()
         const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
         const invoiceNumber = `STP-${day}-${String(this.repository.nextNumber('STP', day)).padStart(4, '0')}`
@@ -128,6 +129,7 @@ export class StampPaperService {
       const sale = this.repository.getSimpleSale(input.saleId)
       if (!sale || sale.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
       if (input.amountPaisa > sale.outstanding_balance_paisa) throw new Error('Payment cannot exceed the outstanding balance')
+      this.ensureDayOpen(this.localDate())
       const now = new Date()
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const receiptNumber = `STPR-${day}-${String(this.repository.nextNumber('STPR', day)).padStart(4, '0')}`
@@ -304,6 +306,7 @@ export class StampPaperService {
         return existing
       }
 
+      this.ensureDayOpen(this.localDate())
       const inventory = this.repository.findInventory(input.inventoryId)
       if (!inventory || inventory.status !== 'AVAILABLE') {
         throw new Error('This stamp paper serial is not available')
@@ -417,6 +420,7 @@ export class StampPaperService {
       if (input.amountPaisa > sale.total_payable_paisa - row.received) {
         throw new Error('Payment cannot exceed the outstanding balance')
       }
+      this.ensureDayOpen(this.localDate())
       const now = new Date()
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const receiptNumber = `STPR-${day}-${String(this.repository.nextNumber('STPR', day)).padStart(4, '0')}`
@@ -439,6 +443,7 @@ export class StampPaperService {
     if (!user) throw new Error('Not logged in')
     if (user.role === 'CASHIER') throw new Error('Only Admin or Manager can cancel stamp paper sales')
     this.db.transaction(() => {
+      this.ensureDayOpen(this.localDate())
       const sale = this.db.prepare(`
         SELECT s.inventory_id, s.status,
           COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_paper_payments p WHERE p.sale_id = s.id), 0)
@@ -495,6 +500,17 @@ export class StampPaperService {
     if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png'
     if (bytes.length >= 5 && bytes.subarray(0, 5).toString('ascii') === '%PDF-') return 'application/pdf'
     throw new Error('Only JPEG, PNG, and PDF documents are supported')
+  }
+
+  private localDate(): string {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  }
+
+  private ensureDayOpen(date: string): void {
+    if (this.db.prepare('SELECT id FROM daily_closings WHERE closing_date = ? AND is_locked = 1').get(date)) {
+      throw new Error('This date is closed. An Admin must unlock the day before recording this transaction.')
+    }
   }
 
   private cleanupOrphanedFiles(): void {

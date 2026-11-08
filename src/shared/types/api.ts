@@ -30,6 +30,7 @@ import type {
   InventoryPurchaseRow, InventorySummary, InventorySupplierCreate, InventorySupplierRow,
   SaleCreate, SaleDetail, SaleReturnCreate, SaleReturnResult, SaleRow
 } from '../schemas'
+import type { DailyClosingClose, DailyClosingRange, DailyClosingReport, DailyClosingSave } from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -181,4 +182,8 @@ export interface WindowApi {
   salesList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SaleRow[]>>
   salesDetail: (id: number) => Promise<IpcResult<SaleDetail>>
   salesReturn: (input: SaleReturnCreate) => Promise<IpcResult<SaleReturnResult>>
+  dailyClosingReport: (range: DailyClosingRange) => Promise<IpcResult<DailyClosingReport>>
+  dailyClosingSave: (input: DailyClosingSave) => Promise<IpcResult<null>>
+  dailyClosingClose: (input: DailyClosingClose) => Promise<IpcResult<null>>
+  dailyClosingUnlock: (date: string) => Promise<IpcResult<null>>
 }

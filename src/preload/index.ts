@@ -12,7 +12,8 @@ import type {
   FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow,
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate,
   InventoryAdjustmentCreate, InventoryProductCreate, InventoryProductUpdate,
-  InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate
+  InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate,
+  DailyClosingSave, DailyClosingClose, DailyClosingRange
 } from '@shared/schemas'
 
 /**
@@ -167,7 +168,11 @@ const api: WindowApi = {
   salesList: (query?: string, fromDate?: string, toDate?: string) =>
     ipcRenderer.invoke('sales:list', { query, fromDate, toDate }),
   salesDetail: (id: number) => ipcRenderer.invoke('sales:detail', { id }),
-  salesReturn: (input: SaleReturnCreate) => ipcRenderer.invoke('sales:return', input)
+  salesReturn: (input: SaleReturnCreate) => ipcRenderer.invoke('sales:return', input),
+  dailyClosingReport: (range: DailyClosingRange) => ipcRenderer.invoke('daily-closing:report', range),
+  dailyClosingSave: (input: DailyClosingSave) => ipcRenderer.invoke('daily-closing:save', input),
+  dailyClosingClose: (input: DailyClosingClose) => ipcRenderer.invoke('daily-closing:close', input),
+  dailyClosingUnlock: (date: string) => ipcRenderer.invoke('daily-closing:unlock', date)
 }
 
 contextBridge.exposeInMainWorld('api', api)

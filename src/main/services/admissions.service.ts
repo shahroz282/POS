@@ -35,6 +35,7 @@ export class AdmissionsService {
       throw new Error('Only Admin or Manager can change admission fees or discounts')
     }
     return this.db.transaction(() => {
+      this.ensureDayOpen(input.admissionDate)
       const studentId = this.repository.insertStudent({ ...input, classId: input.classId })
       const admissionId = this.repository.insertAdmission({
         studentId,
@@ -112,6 +113,7 @@ export class AdmissionsService {
         }
       }
 
+      this.ensureDayOpen(this.localDate())
       const currentBalance = this.repository.admissionBalance(input.admissionId)
       if (currentBalance <= 0) throw new Error('There is no outstanding admission fee balance')
       if (input.amount > currentBalance) throw new Error('Payment cannot exceed the outstanding admission fee')
@@ -143,5 +145,16 @@ export class AdmissionsService {
 
   summary() {
     return this.repository.summary()
+  }
+
+  private localDate(): string {
+    const date = new Date()
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+
+  private ensureDayOpen(date: string): void {
+    if (this.db.prepare('SELECT id FROM daily_closings WHERE closing_date = ? AND is_locked = 1').get(date)) {
+      throw new Error('This date is closed. An Admin must unlock the day before recording this transaction.')
+    }
   }
 }

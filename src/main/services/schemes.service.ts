@@ -138,6 +138,7 @@ export class SchemesService {
       }
     }
     return this.db.transaction(() => {
+      this.ensureDayOpen(input.applicationDate)
       const applicationNo = this.repository.nextApplicationNumber(
         scheme.id, scheme.scheme_code, input.applicationDate.slice(0, 4)
       )
@@ -247,6 +248,11 @@ export class SchemesService {
 
   reversePayment(paymentId: number, reason: string, userId: number): void {
     return this.db.transaction(() => {
+      const payment = this.db.prepare(`
+        SELECT date(paid_at) AS paid_date FROM payments WHERE id = ? AND scheme_app_id IS NOT NULL
+      `).get(paymentId) as { paid_date: string } | undefined
+      if (!payment) throw new Error('Scheme payment not found')
+      this.ensureDayOpen(payment.paid_date)
       this.repository.reversePayment(paymentId, reason, userId)
       this.audit.insert(userId, 'SCHEME_PAYMENT_REVERSED', 'payments', paymentId, reason)
     })()
@@ -254,6 +260,12 @@ export class SchemesService {
 
   summary() {
     return this.repository.summary()
+  }
+
+  private ensureDayOpen(date: string): void {
+    if (this.db.prepare('SELECT id FROM daily_closings WHERE closing_date = ? AND is_locked = 1').get(date)) {
+      throw new Error('This date is closed. An Admin must unlock the day before recording this transaction.')
+    }
   }
 
 }

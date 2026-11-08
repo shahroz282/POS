@@ -11,6 +11,7 @@ import { registerSchemesHandlers } from './ipc/schemes.handler'
 import { registerFilerCustomersHandlers } from './ipc/filer-customers.handler'
 import { registerUdhaarHandlers } from './ipc/udhaar.handler'
 import { registerInventoryHandlers } from './ipc/inventory.handler'
+import { registerDailyClosingHandlers } from './ipc/daily-closing.handler'
 
 // Surface any startup crash in the electron-vite dev console
 process.on('uncaughtException', (err) => {
@@ -31,6 +32,7 @@ app.whenReady().then(async () => {
   registerFilerCustomersHandlers()
   registerUdhaarHandlers()
   registerInventoryHandlers()
+  registerDailyClosingHandlers()
   createWindow()
 
   app.on('activate', () => {

@@ -21,6 +21,7 @@ export class FilerCustomersService {
 
   create(input: FilerCustomerCreate, userId: number): number {
     return this.db.transaction(() => {
+      this.ensureDayOpen(input.filingDate)
       const id = this.repository.create(input, userId)
       this.audit.insert(userId, 'FILER_CUSTOMER_CREATED', 'filer_customers', id, 'Created filing record')
       return id
@@ -29,6 +30,11 @@ export class FilerCustomersService {
 
   update(input: FilerCustomerUpdate, userId: number): void {
     this.db.transaction(() => {
+      const current = this.db.prepare('SELECT filing_date FROM filer_customers WHERE id = ?')
+        .get(input.customerId) as { filing_date: string } | undefined
+      if (!current) throw new Error('Filer customer not found')
+      this.ensureDayOpen(current.filing_date)
+      this.ensureDayOpen(input.filingDate)
       this.repository.update(input)
       this.audit.insert(userId, 'FILER_CUSTOMER_UPDATED', 'filer_customers', input.customerId,
         `Updated filing record; advance paid ${input.advancePaid}`)
@@ -37,5 +43,11 @@ export class FilerCustomersService {
 
   ensureExists(customerId: number): void {
     if (!this.repository.exists(customerId)) throw new Error('Filer customer not found')
+  }
+
+  private ensureDayOpen(date: string): void {
+    if (this.db.prepare('SELECT id FROM daily_closings WHERE closing_date = ? AND is_locked = 1').get(date)) {
+      throw new Error('This date is closed. An Admin must unlock the day before recording this transaction.')
+    }
   }
 }
