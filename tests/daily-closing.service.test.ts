@@ -185,4 +185,37 @@ describe('DailyClosingService', () => {
     service.unlock(reportDate, userId)
     expect(service.report(reportDate).closing?.isLocked).toBe(false)
   })
+
+  it('records an audited expense and rejects expenses on a locked date', () => {
+    const expenseId = service.addExpense({
+      category: 'Utilities',
+      amount: 125,
+      method: 'CASH',
+      expenseDate: reportDate,
+      note: 'Electricity'
+    }, userId)
+
+    expect(raw.prepare('SELECT category, amount, method, expense_date, note FROM expenses WHERE id = ?')
+      .get(expenseId)).toEqual({
+      category: 'Utilities', amount: 125, method: 'CASH', expense_date: reportDate, note: 'Electricity'
+    })
+    expect(raw.prepare('SELECT action, entity, entity_id FROM audit_logs WHERE entity_id = ?')
+      .get(expenseId)).toEqual({ action: 'EXPENSE_CREATED', entity: 'expenses', entity_id: expenseId })
+    expect(service.expenses()).toMatchObject([{
+      id: expenseId,
+      category: 'Utilities',
+      amount: 125,
+      method: 'CASH',
+      expense_date: reportDate,
+      note: 'Electricity',
+      created_by_name: 'Admin'
+    }])
+    expect(service.report(reportDate).cash.cashExpenses).toBe(125)
+
+    service.close(reportDate, 0, 0, userId)
+    expect(() => service.addExpense({
+      category: 'Supplies', amount: 50, method: 'BANK', expenseDate: reportDate
+    }, userId)).toThrow('locked')
+    expect(raw.prepare('SELECT COUNT(*) AS count FROM expenses').get()).toEqual({ count: 1 })
+  })
 })

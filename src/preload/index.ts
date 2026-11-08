@@ -13,7 +13,7 @@ import type {
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate,
   InventoryAdjustmentCreate, InventoryProductCreate, InventoryProductUpdate,
   InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate,
-  DailyClosingSave, DailyClosingClose, DailyClosingRange, ReportsRange
+  DailyClosingSave, DailyClosingExpenseCreate, DailyClosingClose, DailyClosingRange, ReportsRange
 } from '@shared/schemas'
 
 /**
@@ -169,8 +169,11 @@ const api: WindowApi = {
     ipcRenderer.invoke('sales:list', { query, fromDate, toDate }),
   salesDetail: (id: number) => ipcRenderer.invoke('sales:detail', { id }),
   salesReturn: (input: SaleReturnCreate) => ipcRenderer.invoke('sales:return', input),
+  dailyClosingExpenses: () => ipcRenderer.invoke('daily-closing:expenses:list'),
   dailyClosingReport: (range: DailyClosingRange) => ipcRenderer.invoke('daily-closing:report', range),
   dailyClosingSave: (input: DailyClosingSave) => ipcRenderer.invoke('daily-closing:save', input),
+  dailyClosingExpenseCreate: (input: DailyClosingExpenseCreate) =>
+    ipcRenderer.invoke('daily-closing:expense:create', input),
   dailyClosingClose: (input: DailyClosingClose) => ipcRenderer.invoke('daily-closing:close', input),
   dailyClosingUnlock: (date: string) => ipcRenderer.invoke('daily-closing:unlock', date),
   reportsLoad: (range: ReportsRange) => ipcRenderer.invoke('reports:load', range),

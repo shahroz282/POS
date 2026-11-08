@@ -61,12 +61,8 @@ const PAGE_MAP: Record<AppPageId, React.ReactNode> = {
 export function getAllowedPages(role: Role): AppPageId[] {
   const pages: AppPageId[] = ['dashboard', 'sales', 'stamp-paper', 'admissions', 'filer-customers', 'schemes', 'udhaar']
 
-  if (Permissions.canDailyClosing(role)) pages.push('daily-closing')
-  if (Permissions.canPurchase(role)) pages.push('inventory')
-  if (role === 'CASHIER') {
-    pages.push('reports') // sales-only reports
-  } else if (Permissions.canViewAllReports(role)) {
-    pages.push('reports')
+  if (role === 'ADMIN') {
+    pages.push('daily-closing', 'inventory', 'reports')
   }
   if (Permissions.canManageUsers(role)) pages.push('users')
   if (Permissions.canSettings(role)) pages.push('settings')
@@ -139,7 +135,9 @@ export default function App() {
       allowedPages={allowedPages}
       onLogout={handleLogout}
     >
-      {PAGE_MAP[currentPage as AppPageId] ?? <DashboardPage />}
+      {currentPage === 'dashboard'
+        ? <DashboardPage onNavigate={setCurrentPage} allowedPages={allowedPages} role={user.role} />
+        : PAGE_MAP[currentPage as AppPageId] ?? <DashboardPage onNavigate={setCurrentPage} allowedPages={allowedPages} role={user.role} />}
     </SidebarLayout>
   )
 }

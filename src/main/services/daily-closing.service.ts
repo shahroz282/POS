@@ -1,15 +1,23 @@
+import type { DailyClosingExpenseCreate } from '@shared/schemas'
 import { DailyClosingRepository } from '../repositories/daily-closing.repository'
+import { AuditLogRepository } from '../repositories/audit-log.repository'
 import type { DB } from '../db/db'
 
 export class DailyClosingService {
   private readonly repository: DailyClosingRepository
+  private readonly audit: AuditLogRepository
 
   constructor(private readonly db: DB) {
     this.repository = new DailyClosingRepository(db)
+    this.audit = new AuditLogRepository(db)
   }
 
   report(fromDate: string, toDate = fromDate) {
     return this.repository.report(fromDate, toDate)
+  }
+
+  expenses() {
+    return this.repository.expenses()
   }
 
   save(date: string, openingCash: number, userId: number): void {
@@ -19,6 +27,15 @@ export class DailyClosingService {
         INSERT INTO audit_logs (user_id, action, entity, details)
         VALUES (?, 'DAILY_CLOSING_SAVED', 'daily_closings', ?)
       `).run(userId, `Date ${date}; opening cash ${openingCash}`)
+    })()
+  }
+
+  addExpense(input: DailyClosingExpenseCreate, userId: number): number {
+    return this.db.transaction(() => {
+      const id = this.repository.addExpense(input, userId)
+      this.audit.insert(userId, 'EXPENSE_CREATED', 'expenses', id,
+        `${input.category}; amount ${input.amount}; method ${input.method}; date ${input.expenseDate}`)
+      return id
     })()
   }
 

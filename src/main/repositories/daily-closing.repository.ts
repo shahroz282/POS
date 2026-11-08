@@ -1,4 +1,6 @@
-import type { DailyClosingModule, DailyClosingReport } from '@shared/schemas'
+import type {
+  DailyClosingExpenseCreate, DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport
+} from '@shared/schemas'
 import type { DB } from '../db/db'
 
 type TotalRow = { count: number; gross: number; cash: number; noncash: number; refunds: number; outstanding: number }
@@ -112,6 +114,14 @@ export class DailyClosingRepository {
     }
   }
 
+  expenses(): DailyClosingExpenseRow[] {
+    return this.db.prepare(`
+      SELECT e.id, e.category, e.amount, e.method, e.expense_date, e.note, u.name AS created_by_name
+      FROM expenses e JOIN users u ON u.id = e.created_by
+      ORDER BY e.expense_date DESC, e.id DESC
+    `).all() as unknown as DailyClosingExpenseRow[]
+  }
+
   save(date: string, openingCash: number): void {
     this.db.prepare(`
       INSERT INTO daily_closings (closing_date, opening_cash)
@@ -120,6 +130,15 @@ export class DailyClosingRepository {
       WHERE daily_closings.is_locked = 0
     `).run(date, openingCash)
     this.assertUnlocked(date)
+  }
+
+  addExpense(input: DailyClosingExpenseCreate, userId: number): number {
+    this.assertUnlocked(input.expenseDate)
+    const result = this.db.prepare(`
+      INSERT INTO expenses (category, amount, method, expense_date, note, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(input.category, input.amount, input.method, input.expenseDate, input.note || null, userId)
+    return Number(result.lastInsertRowid)
   }
 
   close(date: string, openingCash: number, expectedCash: number, actualCash: number, userId: number): void {

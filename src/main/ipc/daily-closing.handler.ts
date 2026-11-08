@@ -1,7 +1,8 @@
 import { ipcMain } from 'electron'
 import type { IpcResult } from '@shared/types'
 import {
-  DailyClosingCloseSchema, DailyClosingDateSchema, DailyClosingRangeSchema, DailyClosingSaveSchema
+  DailyClosingCloseSchema, DailyClosingDateSchema, DailyClosingExpenseCreateSchema,
+  DailyClosingRangeSchema, DailyClosingSaveSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { getCurrentUser } from '../services/session'
@@ -22,6 +23,8 @@ function authenticated<T>(operation: (userId: number, role: string) => T): IpcRe
 }
 
 export function registerDailyClosingHandlers(): void {
+  ipcMain.handle('daily-closing:expenses:list', () => authenticated(() =>
+    new DailyClosingService(getDb()).expenses()))
   ipcMain.handle('daily-closing:report', (_event, rawInput: unknown) => authenticated(() => {
     const parsed = DailyClosingRangeSchema.safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)
@@ -32,6 +35,11 @@ export function registerDailyClosingHandlers(): void {
     if (!parsed.success) throw new Error(parsed.error.message)
     new DailyClosingService(getDb()).save(parsed.data.date, parsed.data.openingCash, userId)
     return null
+  }))
+  ipcMain.handle('daily-closing:expense:create', (_event, rawInput: unknown) => authenticated((userId) => {
+    const parsed = DailyClosingExpenseCreateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return { id: new DailyClosingService(getDb()).addExpense(parsed.data, userId) }
   }))
   ipcMain.handle('daily-closing:close', (_event, rawInput: unknown) => authenticated((userId) => {
     const parsed = DailyClosingCloseSchema.safeParse(rawInput)

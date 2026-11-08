@@ -15,10 +15,27 @@ export const DailyClosingSaveSchema = z.object({
 export const DailyClosingCloseSchema = DailyClosingSaveSchema.extend({
   actualCash: z.number().int().min(0).max(100_000_000)
 })
+export const DailyClosingExpenseCreateSchema = z.object({
+  category: z.string().trim().min(1).max(100),
+  amount: z.number().int().min(1).max(100_000_000),
+  method: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),
+  expenseDate: DailyClosingDateSchema,
+  note: z.string().trim().max(500).optional().or(z.literal(''))
+})
 
 export type DailyClosingSave = z.infer<typeof DailyClosingSaveSchema>
 export type DailyClosingClose = z.infer<typeof DailyClosingCloseSchema>
 export type DailyClosingRange = z.infer<typeof DailyClosingRangeSchema>
+export type DailyClosingExpenseCreate = z.infer<typeof DailyClosingExpenseCreateSchema>
+export type DailyClosingExpenseRow = {
+  id: number
+  category: string
+  amount: number
+  method: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
+  expense_date: string
+  note: string | null
+  created_by_name: string
+}
 export type DailyClosingModule = {
   key: 'sales' | 'stampPaper' | 'admissions' | 'schemes' | 'filerCustomers' | 'udhaar'
   label: string
