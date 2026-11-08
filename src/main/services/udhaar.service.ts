@@ -118,6 +118,7 @@ export class UdhaarService {
         method: input.method,
         referenceNumber: input.referenceNumber
       })
+      this.repository.allocateSaleRepayment(input.customerId, id, input.amount)
       const newBalance = this.repository.balance(input.customerId)
       if (input.method === 'CASH') {
         this.db.prepare(`

@@ -24,6 +24,12 @@ import type {
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarEntryRow, UdhaarOutstandingGroup,
   UdhaarRepaymentCreate, UdhaarRepaymentResult
 } from '../schemas'
+import type {
+  InventoryAdjustmentCreate, InventoryMovementRow,
+  InventoryProductCreate, InventoryProductRow, InventoryProductUpdate, InventoryPurchaseCreate,
+  InventoryPurchaseRow, InventorySummary, InventorySupplierCreate, InventorySupplierRow,
+  SaleCreate, SaleDetail, SaleReturnCreate, SaleReturnResult, SaleRow
+} from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -158,4 +164,21 @@ export interface WindowApi {
   udhaarEntries: (customerId: number) => Promise<IpcResult<UdhaarEntryRow[]>>
   udhaarChargeCreate: (input: UdhaarEntryCreate) => Promise<IpcResult<{ id: number; balance: number }>>
   udhaarRepaymentCreate: (input: UdhaarRepaymentCreate) => Promise<IpcResult<UdhaarRepaymentResult>>
+
+  // ── Inventory and normal sales ──────────────────────────────────────────
+  inventorySummary: () => Promise<IpcResult<InventorySummary>>
+  inventoryProducts: (query?: string, includeArchived?: boolean) => Promise<IpcResult<InventoryProductRow[]>>
+  inventoryProductCreate: (input: InventoryProductCreate) => Promise<IpcResult<{ id: number }>>
+  inventoryProductUpdate: (input: InventoryProductUpdate) => Promise<IpcResult<null>>
+  inventoryProductActive: (id: number, active: boolean) => Promise<IpcResult<null>>
+  inventorySuppliers: () => Promise<IpcResult<InventorySupplierRow[]>>
+  inventorySupplierCreate: (input: InventorySupplierCreate) => Promise<IpcResult<{ id: number }>>
+  inventoryPurchases: () => Promise<IpcResult<InventoryPurchaseRow[]>>
+  inventoryPurchaseCreate: (input: InventoryPurchaseCreate) => Promise<IpcResult<{ id: number; purchaseNo: string }>>
+  inventoryAdjustmentCreate: (input: InventoryAdjustmentCreate) => Promise<IpcResult<null>>
+  inventoryMovements: () => Promise<IpcResult<InventoryMovementRow[]>>
+  salesCreate: (input: SaleCreate) => Promise<IpcResult<SaleDetail>>
+  salesList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SaleRow[]>>
+  salesDetail: (id: number) => Promise<IpcResult<SaleDetail>>
+  salesReturn: (input: SaleReturnCreate) => Promise<IpcResult<SaleReturnResult>>
 }

@@ -227,6 +227,29 @@ export class UdhaarRepository {
     return Number(result.lastInsertRowid)
   }
 
+  allocateSaleRepayment(customerId: number, entryId: number, amount: number): void {
+    const sales = this.db.prepare(`
+      SELECT s.id,
+        COALESCE(SUM(CASE WHEN e.type = 'CHARGE' THEN e.amount ELSE 0 END), 0) AS charged,
+        COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = s.id), 0) AS allocated,
+        COALESCE((SELECT SUM(e2.amount) FROM udhaar_entries e2
+          WHERE e2.sale_id = s.id AND e2.type = 'REPAYMENT'), 0) AS adjusted
+      FROM sales s JOIN udhaar_entries e ON e.sale_id = s.id AND e.customer_id = ? AND e.type = 'CHARGE'
+      GROUP BY s.id ORDER BY s.created_at, s.id
+    `).all(customerId) as unknown as Array<{ id: number; charged: number; allocated: number; adjusted: number }>
+    let remaining = amount
+    for (const sale of sales) {
+      const due = Math.max(0, sale.charged - sale.allocated - sale.adjusted)
+      const allocation = Math.min(due, remaining)
+      if (allocation <= 0) continue
+      this.db.prepare(`
+        INSERT INTO udhaar_sale_allocations (udhaar_entry_id, sale_id, amount) VALUES (?, ?, ?)
+      `).run(entryId, sale.id, allocation)
+      remaining -= allocation
+      if (remaining === 0) break
+    }
+  }
+
   repaymentResult(entryId: number, balance: number): UdhaarRepaymentResult {
     const row = this.db.prepare(`
       SELECT u.id, u.receipt_no AS receiptNumber, u.amount, u.entry_date AS entryDate,

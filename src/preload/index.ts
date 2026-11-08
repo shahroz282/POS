@@ -10,7 +10,9 @@ import type {
   SchemeApplicationSearch, SchemeApplicationUpdate,
   SchemeCustomFieldCreate, SchemeDocumentRequirementCreate,
   FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow,
-  UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate
+  UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate,
+  InventoryAdjustmentCreate, InventoryProductCreate, InventoryProductUpdate,
+  InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate
 } from '@shared/schemas'
 
 /**
@@ -146,7 +148,26 @@ const api: WindowApi = {
   udhaarCustomerCreate: (input: UdhaarCustomerCreate) => ipcRenderer.invoke('udhaar:customers:create', input),
   udhaarEntries: (customerId: number) => ipcRenderer.invoke('udhaar:entries:list', { customerId }),
   udhaarChargeCreate: (input: UdhaarEntryCreate) => ipcRenderer.invoke('udhaar:charges:create', input),
-  udhaarRepaymentCreate: (input: UdhaarRepaymentCreate) => ipcRenderer.invoke('udhaar:repayments:create', input)
+  udhaarRepaymentCreate: (input: UdhaarRepaymentCreate) => ipcRenderer.invoke('udhaar:repayments:create', input),
+
+  // ── Inventory and normal sales ──────────────────────────────────────────
+  inventorySummary: () => ipcRenderer.invoke('inventory:summary'),
+  inventoryProducts: (query?: string, includeArchived?: boolean) =>
+    ipcRenderer.invoke('inventory:products:list', { query, includeArchived }),
+  inventoryProductCreate: (input: InventoryProductCreate) => ipcRenderer.invoke('inventory:products:create', input),
+  inventoryProductUpdate: (input: InventoryProductUpdate) => ipcRenderer.invoke('inventory:products:update', input),
+  inventoryProductActive: (id: number, active: boolean) => ipcRenderer.invoke('inventory:products:active', { id, active }),
+  inventorySuppliers: () => ipcRenderer.invoke('inventory:suppliers:list'),
+  inventorySupplierCreate: (input: InventorySupplierCreate) => ipcRenderer.invoke('inventory:suppliers:create', input),
+  inventoryPurchases: () => ipcRenderer.invoke('inventory:purchases:list'),
+  inventoryPurchaseCreate: (input: InventoryPurchaseCreate) => ipcRenderer.invoke('inventory:purchases:create', input),
+  inventoryAdjustmentCreate: (input: InventoryAdjustmentCreate) => ipcRenderer.invoke('inventory:adjustments:create', input),
+  inventoryMovements: () => ipcRenderer.invoke('inventory:movements:list'),
+  salesCreate: (input: SaleCreate) => ipcRenderer.invoke('sales:create', input),
+  salesList: (query?: string, fromDate?: string, toDate?: string) =>
+    ipcRenderer.invoke('sales:list', { query, fromDate, toDate }),
+  salesDetail: (id: number) => ipcRenderer.invoke('sales:detail', { id }),
+  salesReturn: (input: SaleReturnCreate) => ipcRenderer.invoke('sales:return', input)
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -10,6 +10,7 @@ import { registerAdmissionsHandlers } from './ipc/admissions.handler'
 import { registerSchemesHandlers } from './ipc/schemes.handler'
 import { registerFilerCustomersHandlers } from './ipc/filer-customers.handler'
 import { registerUdhaarHandlers } from './ipc/udhaar.handler'
+import { registerInventoryHandlers } from './ipc/inventory.handler'
 
 // Surface any startup crash in the electron-vite dev console
 process.on('uncaughtException', (err) => {
@@ -29,6 +30,7 @@ app.whenReady().then(async () => {
   registerSchemesHandlers()
   registerFilerCustomersHandlers()
   registerUdhaarHandlers()
+  registerInventoryHandlers()
   createWindow()
 
   app.on('activate', () => {

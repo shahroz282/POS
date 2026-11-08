@@ -22,13 +22,13 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 ## 2. Modules (original numbering)
 1. Login: username + password, role-based redirect to Dashboard.
 2. Dashboard: today's sales, cash received, udhaar given, expenses, low-stock count; quick actions (new sale, stamp paper, admission, scheme application, receive udhaar, cash in/out, daily report); recent transactions; alerts.
-3. Normal sales: search/select item -> quantity/price -> cart -> optional discount -> optional customer -> received amount -> udhaar option -> save (atomic) -> print receipt.
+3. Normal sales: search/select in-stock item -> quantity -> cart -> optional discount -> optional customer -> amount received -> unpaid balance recorded in udhaar -> save sale, payment, stock movements and invoice atomically -> print receipt. Admin/Manager can review sales and record partial/full returns.
 4. Stamp paper: bank employee name, customer name, price, register number, status, remarks, save, optional receipt. Separate from inventory.
 5. Admissions: class folders (9th, 10th, add folder) -> add/search student -> admission details -> save -> collect fee -> receipt -> Excel export.
 6. Schemes: scheme folders (e.g. CM APNA GHAR 2026, add folder) -> add/search application -> details (date, CNIC, mobile, category) -> application fee -> status -> remarks -> save -> payment -> receipt -> Excel export.
 7. Daily closing: opening cash, cash in/out, sales cash, refunds, expenses, expected vs actual closing cash, day lock, date-range reports.
 8. Udhaar: unified outstanding view across customer Udhaar/sale credit, admissions, schemes, stamp paper, and filer customers, grouped by exact CNIC or phone with module details; customer ledger supports search, manual charges, repayments with method/reference/receipt, and history. Cash repayments are included in cash-in entries; edits on locked dates are rejected.
-9. Stock and inventory: categories, products, purchases, stock movements, returns, low-stock alerts, profit report.
+9. Stock and inventory: products (cost/sale prices, low-stock level), suppliers, purchases, auditable stock adjustments and movement history, low-stock alerts and stock value. Purchases increase stock; sales decrease it; approved returns restore it. Cashiers may sell but cannot manage inventory or view purchase cost.
 10. Reports: sales, profit, stock, udhaar, customer, admissions, schemes; export Excel/PDF.
 11. Settings: shop details, receipt format, users, tax/discount rules, backup settings.
 12. Backup and restore: manual, automatic, external USB, restore with verification, history.
@@ -60,6 +60,7 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 8. Every payment links to exactly one of: sale, stamp transaction, admission, scheme application.
 9. Passwords are hashed (argon2 or bcrypt). Never stored or logged in plain text.
 10. Important actions are written to `audit_logs` (login, sale return, stock adjustment, day unlock, restore, user changes, settings changes).
+11. Inventory quantity changes only with a recorded purchase, sale, return or adjustment. Sales and returns cannot make stock negative; each operation writes its transaction, stock movements and any customer-credit/payment changes atomically.
 
 ## 5. Cash formula (daily closing)
 expected_closing = opening_cash + cash payments received (all modules) + CASH_IN entries
