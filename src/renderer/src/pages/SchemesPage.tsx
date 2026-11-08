@@ -4,8 +4,9 @@ import * as XLSX from 'xlsx'
 import type { Role } from '@shared/constants'
 import type {
   SchemeApplicationDetail, SchemeApplicationRow, SchemeApplicationUpdate,
-  SchemePaymentResult, SchemeRow, SchemesSummary
+  SchemePaymentResult, SchemeRow, SchemesSummary, SettingsRow
 } from '@shared/schemas'
+import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type Tab = 'overview' | 'schemes' | 'applications' | 'new-application' | 'edit-applicant' | 'manage-fees'
 type SchemeStatus = 'RECEIVED' | 'UNDER_REVIEW' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PENDING_DOCUMENTS' | 'COMPLETED' | 'CANCELLED'
@@ -68,6 +69,7 @@ export default function SchemesPage() {
   })
   const [selected, setSelected] = useState<SchemeApplicationDetail | null>(null)
   const [receipt, setReceipt] = useState<{ payment: SchemePaymentResult; applicant: SchemeApplicationDetail } | null>(null)
+  const [receiptSettings, setReceiptSettings] = useState<SettingsRow | null>(null)
   const [search, setSearch] = useState('')
   const [schemeFilter, setSchemeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -208,7 +210,10 @@ export default function SchemesPage() {
     void (async () => {
       const session = await window.api.authGetSession()
       if (session.ok && session.data) setRole(session.data.role)
-      await Promise.all([loadSchemes(), loadSummary(), loadApplications()])
+      const settings = getReceiptSettings().then(setReceiptSettings).catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : 'Receipt settings could not be loaded.')
+      })
+      await Promise.all([loadSchemes(), loadSummary(), loadApplications(), settings])
     })()
   }, [loadSchemes, loadSummary, loadApplications])
 
@@ -537,7 +542,8 @@ export default function SchemesPage() {
           balance: payment.balance_after ?? selected.balance, paidAt: payment.paid_at,
           method: payment.method, referenceNumber: payment.reference_no
         } })
-        setTimeout(() => window.print(), 0)
+        if (receiptSettings) setTimeout(() => window.print(), 0)
+        else setError('Receipt settings are not ready. Wait for them to load, then print the receipt.')
       }} />}
     </section>}
 
@@ -640,14 +646,15 @@ export default function SchemesPage() {
             balance: payment.balance_after ?? selected.balance, paidAt: payment.paid_at,
             method: payment.method, referenceNumber: payment.reference_no
           } })
-          setTimeout(() => window.print(), 0)
+          if (receiptSettings) setTimeout(() => window.print(), 0)
+          else setError('Receipt settings are not ready. Wait for them to load, then print the receipt.')
         }} />
       </section>}
       {!selected && <section className={sectionClass}><ApplicationTable rows={applications} onOpen={(id) => void openApplication(id)} onManageFees={(id) => void openApplicationFees(id)} /></section>}
     </section>}
 
     {receipt && <div className="print-receipt mx-auto w-full max-w-2xl border border-gray-700 bg-white p-6 text-gray-950">
-      <div className="text-center"><h2 className="text-xl font-bold">SAQIB PHOTO STATE</h2><p className="text-sm">Scheme Application Fee Receipt</p></div>
+      <div className="text-center"><h2 className="text-xl font-bold">{receiptSettings?.shop_name || ''}</h2><p className="text-sm">Scheme Application Fee Receipt</p></div>
       <div className="my-4 grid grid-cols-2 gap-2 border-y border-gray-300 py-3 text-sm">
         <span>Receipt: <strong>{receipt.payment.receiptNumber}</strong></span><span>Application: <strong>{receipt.applicant.application_no}</strong></span>
         <span>Scheme: {receipt.applicant.scheme_name}</span><span>Date: {receipt.payment.paidAt}</span>
@@ -659,9 +666,9 @@ export default function SchemesPage() {
         <span>Reference: {receipt.payment.referenceNumber || '—'}</span>
       </div>
       <p className="mt-8 text-right text-sm">Authorized signature: __________________</p>
-      <div className="no-print mt-4 flex justify-end gap-2"><button type="button" onClick={() => window.print()} className="border border-gray-400 px-3 py-2 text-sm">Print / reprint</button><button type="button" onClick={() => setReceipt(null)} className="border border-gray-400 px-3 py-2 text-sm">Close receipt</button></div>
+      <div className="no-print mt-4 flex justify-end gap-2"><button type="button" disabled={!receiptSettings} onClick={() => window.print()} className="border border-gray-400 px-3 py-2 text-sm disabled:opacity-50">Print / reprint</button><button type="button" onClick={() => setReceipt(null)} className="border border-gray-400 px-3 py-2 text-sm">Close receipt</button></div>
     </div>}
-    <style>{'@media print { body * { visibility: hidden !important; } .print-receipt, .print-receipt * { visibility: visible !important; } .print-receipt { position: absolute !important; inset: 0 auto auto 0 !important; width: 100% !important; max-width: none !important; border: 0 !important; } .no-print { display: none !important; } }'}</style>
+    <style>{`@media print { body * { visibility: hidden !important; } .print-receipt, .print-receipt * { visibility: visible !important; } .print-receipt { position: absolute !important; inset: 0 auto auto 0 !important; width: ${receiptSettings ? receiptWidthMm(receiptSettings) : 80}mm !important; max-width: none !important; border: 0 !important; } .no-print { display: none !important; } }`}</style>
   </div>
 }
 

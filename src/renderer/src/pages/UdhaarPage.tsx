@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type {
-  UdhaarCustomerRow, UdhaarEntryRow, UdhaarOutstandingGroup, UdhaarRepaymentResult
+  SettingsRow, UdhaarCustomerRow, UdhaarEntryRow, UdhaarOutstandingGroup, UdhaarRepaymentResult
 } from '@shared/schemas'
+import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type FormMode = 'customer' | 'charge' | 'repayment'
 type CustomerForm = { name: string; phone: string; address: string }
@@ -28,14 +29,22 @@ function escapeHtml(value: string): string {
   })[character] ?? character)
 }
 
-function printReceipt(receipt: UdhaarRepaymentResult): void {
+async function printReceipt(receipt: UdhaarRepaymentResult, onError: (message: string) => void): Promise<void> {
+  let settings: SettingsRow
+  try {
+    settings = await getReceiptSettings()
+  } catch (reason) {
+    onError(reason instanceof Error ? reason.message : 'Receipt settings could not be loaded.')
+    return
+  }
   const printWindow = window.open('', '_blank', 'width=420,height=640')
   if (!printWindow) return
   printWindow.document.write(`<!doctype html><html><head><title>Udhaar repayment receipt</title><style>
-    body{font:14px Arial,sans-serif;color:#111;padding:24px}h1{text-align:center;font-size:20px}
+    @page{size:${receiptWidthMm(settings)}mm auto;margin:0}
+    body{font:14px Arial,sans-serif;color:#111;padding:6mm;width:${receiptWidthMm(settings)}mm;box-sizing:border-box}h1{text-align:center;font-size:20px}
     hr{border:0;border-top:1px solid #aaa;margin:18px 0}.row{display:flex;justify-content:space-between;margin:10px 0}
     .amount{font-size:20px;font-weight:bold}.foot{text-align:center;margin-top:30px;font-size:12px}
-  </style></head><body><h1>Udhaar Repayment Receipt</h1><hr>
+  </style></head><body><h1>${escapeHtml(settings.shop_name)}</h1><p style="text-align:center">Udhaar Repayment Receipt</p><hr>
     <div class="row"><span>Receipt</span><strong>${escapeHtml(receipt.receiptNumber)}</strong></div>
     <div class="row"><span>Customer</span><strong>${escapeHtml(receipt.customerName)}</strong></div>
     <div class="row"><span>Date</span><strong>${escapeHtml(receipt.entryDate)}</strong></div>
@@ -252,7 +261,7 @@ export default function UdhaarPage() {
       {error && <div role="alert" className="mb-4 border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
       {notice && <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-green-800 bg-green-950/30 px-4 py-3 text-sm text-green-300">
         <span>{notice}</span>
-        {latestReceipt && <button type="button" onClick={() => printReceipt(latestReceipt)} className="text-green-200 underline">Print receipt</button>}
+        {latestReceipt && <button type="button" onClick={() => void printReceipt(latestReceipt, setError)} className="text-green-200 underline">Print receipt</button>}
       </div>}
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -408,7 +417,7 @@ export default function UdhaarPage() {
                         <td className="px-2 py-2 text-gray-300">{entry.type === 'CHARGE' ? money(entry.amount) : '—'}</td>
                         <td className="px-2 py-2 text-gray-300">{entry.type === 'REPAYMENT' ? money(entry.amount) : '—'}</td>
                         <td className="px-2 py-2 font-medium text-gray-200">{money(balanceAfterEntry)}</td>
-                        <td className="px-2 py-2">{entry.receipt_no ? <button type="button" onClick={() => printReceipt({
+                        <td className="px-2 py-2">{entry.receipt_no ? <button type="button"                         onClick={() => void printReceipt({
                           id: entry.id, receiptNumber: entry.receipt_no!, amount: entry.amount,
                           balance: balanceAfterEntry, entryDate: entry.entry_date,
                           method: entry.method as UdhaarRepaymentResult['method'],
@@ -416,7 +425,7 @@ export default function UdhaarPage() {
                         })} className="text-brand-300 hover:text-brand-200">{entry.receipt_no}</button> : '—'}</td>
                         <td className="px-2 py-2 text-gray-500">{entry.created_by_name}</td>
                       </tr>
-                    })}
+                    }, setError)}
                   </tbody>
                 </table>
                 {entries.length === 0 && <p className="py-8 text-center text-xs text-gray-500">No charges or repayments recorded yet.</p>}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type {
-  InventoryProductRow, SaleDetail, SaleRow, UdhaarCustomerRow
+  InventoryProductRow, SaleDetail, SaleRow, SettingsRow, UdhaarCustomerRow
 } from '@shared/schemas'
+import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type CartLine = { productId: number; quantity: number }
 type SalesTab = 'new-sale' | 'history'
@@ -21,16 +22,24 @@ function escapeHtml(value: string): string {
   })[character] ?? character)
 }
 
-function printSale(sale: SaleDetail): void {
+async function printSale(sale: SaleDetail, onError: (message: string) => void): Promise<void> {
+  let settings: SettingsRow
+  try {
+    settings = await getReceiptSettings()
+  } catch (reason) {
+    onError(reason instanceof Error ? reason.message : 'Receipt settings could not be loaded.')
+    return
+  }
   const printWindow = window.open('', '_blank', 'width=420,height=700')
   if (!printWindow) return
   const lines = sale.items.map((item) => `<tr><td>${escapeHtml(item.product_name)} × ${item.quantity}</td><td>${escapeHtml(money(item.line_total))}</td></tr>`).join('')
   printWindow.document.write(`<!doctype html><html><head><title>Sale ${escapeHtml(sale.invoice_no)}</title><style>
-    body{font:13px Arial,sans-serif;color:#111;padding:20px}h1{text-align:center;font-size:19px}
+    @page{size:${receiptWidthMm(settings)}mm auto;margin:0}
+    body{font:13px Arial,sans-serif;color:#111;padding:6mm;width:${receiptWidthMm(settings)}mm;box-sizing:border-box}h1{text-align:center;font-size:19px}
     hr{border:0;border-top:1px solid #aaa;margin:14px 0}table{width:100%;border-collapse:collapse}
     td{padding:7px 0;border-bottom:1px dotted #bbb}.right{text-align:right}.row{display:flex;justify-content:space-between;margin:8px 0}
     .total{font-size:17px;font-weight:bold}.foot{text-align:center;margin-top:24px;font-size:12px}
-  </style></head><body><h1>Sale Receipt</h1><div class="row"><span>Invoice</span><strong>${escapeHtml(sale.invoice_no)}</strong></div>
+  </style></head><body><h1>${escapeHtml(settings.shop_name)}</h1><div class="row"><span>Sale Receipt</span><strong>${escapeHtml(sale.invoice_no)}</strong></div>
     <div class="row"><span>Date</span><strong>${escapeHtml(sale.created_at)}</strong></div>
     <div class="row"><span>Customer</span><strong>${escapeHtml(sale.customer_name || 'Walk-in')}</strong></div><hr>
     <table>${lines}</table><hr><div class="row"><span>Subtotal</span><strong>${escapeHtml(money(sale.subtotal))}</strong></div>
@@ -140,7 +149,7 @@ export default function SalesPage() {
     })
     setBusy(false)
     if (!result.ok) { setError(result.error.message); return }
-    printSale(result.data)
+    void printSale(result.data, setError)
     setNotice(`Sale ${result.data.invoice_no} saved.`)
     setCart([]); setSelectedCustomerId(''); setDiscount('0'); setReceivedAmount('')
     setIdempotencyKey(crypto.randomUUID())
@@ -340,7 +349,7 @@ export default function SalesPage() {
             <p className="text-gray-500">Total <strong className="float-right text-gray-100">{money(selectedSale.total)}</strong></p>
             <p className="text-gray-500">Balance <strong className="float-right text-orange-300">{money(selectedSale.balance)}</strong></p>
           </div>
-          <button type="button" onClick={() => printSale(selectedSale)}
+          <button type="button" onClick={() => void printSale(selectedSale, setError)}
             className="mt-5 bg-brand-600 px-4 py-2 text-sm text-white hover:bg-brand-500">Print receipt</button>
           {role !== 'CASHIER' && selectedSale.status !== 'RETURNED' && <form onSubmit={(event) => void submitReturn(event)}
             className="mt-5 border-t border-gray-800 pt-4">

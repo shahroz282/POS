@@ -70,7 +70,7 @@ export type UserRow = z.infer<typeof UserRowSchema>
 
 // ── Settings ────────────────────────────────────────────────────────────────
 export const UpdateSettingsInputSchema = z.object({
-  shop_name: z.string().min(1).max(200).optional(),
+  shop_name: z.string().trim().min(1).max(200).optional(),
   receipt_width_mm: z.number().int().min(40).max(120).optional(),
   max_cashier_discount_percent: z.number().int().min(0).max(100).optional()
 })

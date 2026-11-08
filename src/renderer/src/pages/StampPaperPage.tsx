@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Role } from '@shared/constants'
-import type { SimpleStampSaleDetail, SimpleStampSaleRow, StampDocumentRow } from '@shared/schemas'
+import type { SettingsRow, SimpleStampSaleDetail, SimpleStampSaleRow, StampDocumentRow } from '@shared/schemas'
+import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type PaymentMethod = 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
 type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED'
@@ -37,6 +38,7 @@ function readBase64(file: File): Promise<string> {
 export default function StampPaperPage() {
   const [role, setRole] = useState<Role>('CASHIER')
   const [operator, setOperator] = useState('')
+  const [receiptSettings, setReceiptSettings] = useState<SettingsRow | null>(null)
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new')
   const [transactionId, setTransactionId] = useState(() => crypto.randomUUID())
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
@@ -91,6 +93,11 @@ export default function StampPaperPage() {
       if (session.ok && session.data) {
         setRole(session.data.role)
         setOperator(session.data.name)
+      }
+      try {
+        setReceiptSettings(await getReceiptSettings())
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'Receipt settings could not be loaded.')
       }
       const result = await window.api.simpleStampList('')
       if (result.ok) setSales(result.data)
@@ -275,7 +282,7 @@ export default function StampPaperPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
-      <style>{`@media print { body * { visibility: hidden !important; } #stamp-receipt, #stamp-receipt * { visibility: visible !important; } #stamp-receipt { display: block !important; position: absolute; inset: 0; width: 80mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } }`}</style>
+      <style>{`@media print { body * { visibility: hidden !important; } #stamp-receipt, #stamp-receipt * { visibility: visible !important; } #stamp-receipt { display: block !important; position: absolute; inset: 0; width: ${receiptSettings ? receiptWidthMm(receiptSettings) : 80}mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } }`}</style>
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-800 pb-4">
         <div><p className="text-xs font-semibold uppercase text-brand-400">Module 4</p><h1 className="mt-1 text-xl font-semibold text-gray-100">Stamp Paper</h1><p className="mt-1 text-sm text-gray-500">Transactions, attachments and payment history.</p></div>
         <div className="text-right text-xs text-gray-500">Operator: <span className="text-gray-300">{operator || 'Loading…'}</span></div>
@@ -366,12 +373,12 @@ export default function StampPaperPage() {
             <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Payment history</h3>{selectedSale.payments.length ? <ul className="divide-y divide-gray-800">{selectedSale.payments.map((payment) => <li key={payment.id} className="flex justify-between gap-3 py-2 text-xs"><span className="text-gray-400">{payment.receipt_number} · {payment.method} · {payment.paid_at}</span><span className="text-gray-200">{formatPkr(payment.amount_paisa)}</span></li>)}</ul> : <p className="text-xs text-gray-500">No payments recorded.</p>}</div>
             {selectedSale.status !== 'CANCELLED' && selectedSale.outstanding_balance_paisa > 0 && <form onSubmit={(event) => void recordPayment(event)} className="grid gap-2 border-t border-gray-800 pt-3 sm:grid-cols-[1fr_1fr_auto]"><label><span className={labelClass}>Receive payment (PKR)</span><input className={inputClass} inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required /></label><label><span className={labelClass}>Method</span><select className={inputClass} value={laterPaymentMethod} onChange={(event) => setLaterPaymentMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label><button disabled={busy} className="self-end bg-brand-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Record payment</button></form>}
             {canManageDocuments && selectedSale.documents.length > 0 && <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Attachments</h3><ul className="space-y-2">{selectedSale.documents.map((document) => <li key={document.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-gray-400">{document.original_filename}</span><span className="flex shrink-0 gap-3"><button type="button" className="text-brand-300" onClick={() => void openAttachment(document as unknown as StampDocumentRow)}>Preview</button><button type="button" className="text-red-400" onClick={() => void removeSavedAttachment(document as unknown as StampDocumentRow)}>Remove</button></span></li>)}</ul></div>}
-            <button type="button" onClick={() => window.print()} className="border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:bg-gray-800">Print receipt</button>
+            <button type="button" disabled={!receiptSettings} onClick={() => window.print()} className="border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-50">Print receipt</button>
           </div>}
         </section>
       </div>}
 
-      {selectedSale && <Receipt sale={selectedSale} />}
+      {selectedSale && receiptSettings && <Receipt sale={selectedSale} settings={receiptSettings} />}
       {preview && <div role="dialog" aria-modal="true" aria-label="Attachment preview" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setPreview(null)}><div className="flex max-h-full max-w-5xl flex-col bg-gray-900 p-3" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between gap-3"><span className="max-w-[70vw] truncate text-sm text-gray-200">{preview.name}</span><button type="button" onClick={() => setPreview(null)} className="px-2 text-gray-300">Close</button></div>{preview.mimeType.startsWith('image/') ? <img src={preview.url} alt={preview.name} className="max-h-[80vh] max-w-full object-contain" /> : <iframe title={preview.name} src={preview.url} className="h-[80vh] w-[80vw] bg-white" />}</div></div>}
     </div>
   )
@@ -389,6 +396,6 @@ function PaymentOptions() {
   return <><option value="CASH">Cash</option><option value="BANK">Bank transfer</option><option value="EASYPAISA">Easypaisa</option><option value="JAZZCASH">JazzCash</option></>
 }
 
-function Receipt({ sale }: { sale: SimpleStampSaleDetail }) {
-  return <article id="stamp-receipt" className="hidden"><h1>SAQIB PHOTO STATE</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p><p>Ticket available: {sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</p><p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price: {formatPkr(sale.sale_price_paisa)}</p><p>Service charges: {formatPkr(sale.service_charges_paisa)}</p><p>Other fees: {formatPkr(sale.other_fees_paisa)}</p><p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
+function Receipt({ sale, settings }: { sale: SimpleStampSaleDetail; settings: SettingsRow }) {
+  return <article id="stamp-receipt" className="hidden"><h1>{settings.shop_name}</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p><p>Ticket available: {sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</p><p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price: {formatPkr(sale.sale_price_paisa)}</p><p>Service charges: {formatPkr(sale.service_charges_paisa)}</p><p>Other fees: {formatPkr(sale.other_fees_paisa)}</p><p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
 }

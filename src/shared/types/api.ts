@@ -2,7 +2,7 @@ import type {
   PingInput, PingOutput,
   LoginInput, LoginOutput, SetupAdminInput, SessionUser,
   CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UserRow,
-  UpdateSettingsInput, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
+  UpdateSettingsInput, SettingsRow, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
   StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary,
   SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow
 } from '../schemas'
@@ -58,7 +58,7 @@ export interface WindowApi {
   usersResetPassword: (input: ResetPasswordInput) => Promise<IpcResult<null>>
 
   // ── Settings ────────────────────────────────────────────────────────────
-  settingsGet: () => Promise<IpcResult<{ shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string }>>
+  settingsGet: () => Promise<IpcResult<SettingsRow>>
   settingsUpdate: (input: UpdateSettingsInput) => Promise<IpcResult<null>>
 
   // ── Stamp paper ─────────────────────────────────────────────────────────

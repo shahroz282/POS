@@ -3,8 +3,9 @@ import type { FormEvent } from 'react'
 import type { Role } from '@shared/constants'
 import type {
   AdmissionClassRow, AdmissionDetail, AdmissionPaymentResult, AdmissionPaymentRow, AdmissionStudentRow,
-  AdmissionDocumentCategoryType, AdmissionDocumentRow
+  AdmissionDocumentCategoryType, AdmissionDocumentRow, SettingsRow
 } from '@shared/schemas'
+import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type Tab = 'overview' | 'students' | 'new-student' | 'classes' | 'manage-fees'
 type PayMethod = 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
@@ -81,6 +82,7 @@ export default function AdmissionsPage() {
   const [paymentReference, setPaymentReference] = useState('')
   const [paymentNotes, setPaymentNotes] = useState('')
   const [paymentKey, setPaymentKey] = useState(() => crypto.randomUUID())
+  const [receiptSettings, setReceiptSettings] = useState<SettingsRow | null>(null)
   const canManage = role === 'ADMIN' || role === 'MANAGER'
   const classOptions = useMemo(() => classes.map((item) => ({
     id: String(item.id), name: `${item.class_name} — ${item.academic_year}`
@@ -148,7 +150,10 @@ export default function AdmissionsPage() {
     void (async () => {
       const session = await window.api.authGetSession()
       if (session.ok && session.data) setRole(session.data.role)
-      await Promise.all([loadClasses(), loadStudents('', ''), loadOverviewStudents(), loadSummary()])
+      const settings = getReceiptSettings().then(setReceiptSettings).catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : 'Receipt settings could not be loaded.')
+      })
+      await Promise.all([loadClasses(), loadStudents('', ''), loadOverviewStudents(), loadSummary(), settings])
     })()
   }, [loadClasses, loadStudents, loadSummary])
 
@@ -282,7 +287,7 @@ export default function AdmissionsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
-      <style>{`@media print { body * { visibility: hidden !important; } #admission-receipt, #admission-receipt *, #admissions-report, #admissions-report * { visibility: visible !important; } #admission-receipt { display: block !important; position: absolute; inset: 0; width: 80mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } #admissions-report { display: block !important; position: absolute; inset: 0; width: 100%; padding: 8mm; color: #000; background: #fff; font: 10px Arial, sans-serif; } #admissions-report table { width: 100%; border-collapse: collapse; } #admissions-report th, #admissions-report td { border: 1px solid #999; padding: 4px; color: #000 !important; } }`}</style>
+      <style>{`@media print { body * { visibility: hidden !important; } #admission-receipt, #admission-receipt *, #admissions-report, #admissions-report * { visibility: visible !important; } #admission-receipt { display: block !important; position: absolute; inset: 0; width: ${receiptSettings ? receiptWidthMm(receiptSettings) : 80}mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } #admissions-report { display: block !important; position: absolute; inset: 0; width: 100%; padding: 8mm; color: #000; background: #fff; font: 10px Arial, sans-serif; } #admissions-report table { width: 100%; border-collapse: collapse; } #admissions-report th, #admissions-report td { border: 1px solid #999; padding: 4px; color: #000 !important; } }`}</style>
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-800 pb-4">
         <div><p className="text-xs font-semibold uppercase text-brand-400">Module 5</p><h1 className="mt-1 text-xl font-semibold text-gray-100">Admissions & Fees</h1><p className="mt-1 text-sm text-gray-500">Manage academic class folders, student admissions and fee ledgers.</p></div>
         <div className="flex flex-wrap gap-2">
@@ -446,10 +451,10 @@ export default function AdmissionsPage() {
 
         {receipt && <div className="flex items-center justify-between border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
           <span>Receipt ready: {receipt.payment.receiptNumber}</span>
-          <button type="button" onClick={() => window.print()} className="border border-emerald-800 px-3 py-1.5 text-xs hover:bg-emerald-900/40">Print / reprint receipt</button>
+          <button type="button" disabled={!receiptSettings} onClick={() => window.print()} className="border border-emerald-800 px-3 py-1.5 text-xs hover:bg-emerald-900/40 disabled:opacity-50">Print / reprint receipt</button>
         </div>}
         {receipt && <article id="admission-receipt" className="hidden">
-          <h1>SAQIB PHOTO STATE</h1><p>Admission fee receipt</p><hr />
+          <h1>{receiptSettings?.shop_name || ''}</h1><p>Admission fee receipt</p><hr />
           <p>Receipt: {receipt.payment.receiptNumber}</p><p>Date: {new Date(receipt.payment.paidAt).toLocaleString()}</p>
           <p>Student ID: {receipt.admission.student_no}</p><p>Student: {receipt.admission.full_name}</p>
           <p>Father: {receipt.admission.father_name}</p><p>Class: {receipt.admission.class_name} ({receipt.admission.academic_year})</p>

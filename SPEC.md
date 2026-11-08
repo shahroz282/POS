@@ -30,7 +30,7 @@ Currency: PKR. All money is stored as INTEGER rupees (never floats).
 8. Udhaar: unified outstanding view across customer Udhaar/sale credit, admissions, schemes, stamp paper, and filer customers, grouped by exact CNIC or phone with module details; customer ledger supports search, manual charges, repayments with method/reference/receipt, and history. Cash repayments are included in cash-in entries; edits on locked dates are rejected.
 9. Stock and inventory: products (cost/sale prices, low-stock level), suppliers, purchases, auditable stock adjustments and movement history, low-stock alerts and stock value. Purchases increase stock; sales decrease it; approved returns restore it. Cashiers may sell but cannot manage inventory or view purchase cost.
 10. Reports: sales, profit, stock, udhaar, customer, admissions, schemes; export Excel/PDF.
-11. Settings: shop details, receipt format, users, tax/discount rules, backup settings.
+11. Settings: shop name, receipt paper width, and Cashier discount limit. User management and backup remain in their separate modules; tax and automatic-backup settings are not active in v1.
 12. Backup and restore: manual, automatic, external USB, restore with verification, history.
 13. Filer customers: add/search/edit filing clients, track total fee and advance paid, derive pending balance/payment status, and securely store/view filing proof.
 

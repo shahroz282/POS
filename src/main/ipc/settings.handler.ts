@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import type { IpcResult } from '@shared/types'
 import { UpdateSettingsInputSchema } from '@shared/schemas'
+import type { SettingsRow } from '@shared/schemas'
 import { Permissions } from '@shared/constants'
 import type { Role } from '@shared/constants'
 import { getDb } from '../db/connection'
@@ -13,7 +14,7 @@ import { getCurrentUser } from '../services/session'
  */
 export function registerSettingsHandlers(): void {
   // ── settings:get ──────────────────────────────────────────────────────
-  ipcMain.handle('settings:get', (): IpcResult<{ shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string }> => {
+  ipcMain.handle('settings:get', (): IpcResult<SettingsRow> => {
     const user = getCurrentUser()
     if (!user) return { ok: false, error: { code: 'NOT_AUTHENTICATED', message: 'Not logged in' } }
     try {
