@@ -210,6 +210,19 @@ describe('StampPaperService', () => {
     expect(settled.amount_received_paisa).toBe(260_025)
     expect(settled.outstanding_balance_paisa).toBe(0)
     expect(settled.payments).toHaveLength(2)
+
+    const cancellation = {
+      saleId: sale.id,
+      idempotencyKey: 'cc65f269-e1ae-4d38-a250-a20db52a0e44',
+      method: 'CASH' as const,
+      reason: 'Customer cancelled the transaction'
+    }
+    const cancelled = simpleService.cancelSimpleSale(cancellation, 'ADMIN')
+    expect(cancelled).toMatchObject({
+      status: 'CANCELLED', amount_received_paisa: 0, outstanding_balance_paisa: 0
+    })
+    expect(cancelled.refunds).toMatchObject([{ amount_paisa: 260_025, method: 'CASH' }])
+    expect(simpleService.cancelSimpleSale(cancellation, 'ADMIN').refunds).toHaveLength(1)
   })
 
   it('allows transactions without a ticket number but requires registration', () => {

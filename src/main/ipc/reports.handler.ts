@@ -2,10 +2,11 @@ import { app, dialog, ipcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { IpcResult } from '@shared/types'
-import { ReportsRangeSchema } from '@shared/schemas'
+import { DailyClosingDateSchema, ReportsRangeSchema } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { getCurrentUser } from '../services/session'
 import { ReportsService } from '../services/reports.service'
+import { DailyClosingRepository } from '../repositories/daily-closing.repository'
 
 function authenticated<T>(operation: (userId: number, role: 'ADMIN' | 'MANAGER' | 'CASHIER') => T): IpcResult<T> {
   const user = getCurrentUser()
@@ -18,6 +19,23 @@ function authenticated<T>(operation: (userId: number, role: 'ADMIN' | 'MANAGER' 
 }
 
 export function registerReportsHandlers(): void {
+  ipcMain.handle('dashboard:daily-summary', (_event, rawDate: unknown) => {
+    const user = getCurrentUser()
+    if (!user) return { ok: false, error: { code: 'NOT_AUTHENTICATED', message: 'Not logged in' } }
+    const parsed = DailyClosingDateSchema.safeParse(rawDate)
+    if (!parsed.success) return { ok: false, error: { code: 'DASHBOARD_ERROR', message: parsed.error.message } }
+    try {
+      const modules = new DailyClosingRepository(getDb()).report(parsed.data).modules
+        .filter((module) => module.key === 'stampPaper' || module.key === 'photocopy')
+        .map(({ key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding }) => ({
+          key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding
+        }))
+      return { ok: true, data: modules }
+    } catch (error) {
+      return { ok: false, error: { code: 'DASHBOARD_ERROR', message: error instanceof Error ? error.message : 'Dashboard summary failed' } }
+    }
+  })
+
   ipcMain.handle('reports:load', (_event, rawInput: unknown) => authenticated((_userId, role) => {
     const parsed = ReportsRangeSchema.safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)

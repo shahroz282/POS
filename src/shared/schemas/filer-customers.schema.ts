@@ -46,6 +46,28 @@ export const FilerCustomerSearchSchema = z.object({
 })
 
 export const FilerCustomerIdSchema = z.number().int().positive()
+export const FilerCustomerPaymentCreateSchema = z.object({
+  customerId: FilerCustomerIdSchema,
+  idempotencyKey: z.string().uuid(),
+  entryType: z.enum(['RECEIVED', 'REVERSED']),
+  amount: z.number().int().positive().max(100_000_000),
+  method: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH', 'UNCLASSIFIED']),
+  paymentDate: isoDate,
+  note: optionalText(500)
+})
+export type FilerCustomerPaymentCreate = z.infer<typeof FilerCustomerPaymentCreateSchema>
+
+export type FilerCustomerPaymentRow = {
+  id: number
+  idempotency_key: string
+  entry_type: 'RECEIVED' | 'REVERSED'
+  amount: number
+  method: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH' | 'UNCLASSIFIED'
+  payment_date: string
+  note: string | null
+  created_at: string
+  created_by_name: string
+}
 
 export const FilerCustomerDocumentStageSchema = z.object({
   originalFilename: z.string().trim().min(1).max(180),

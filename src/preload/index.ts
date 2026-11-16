@@ -4,16 +4,18 @@ import type {
   PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
   ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate,
   SimpleStampSaleCreate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate,
+  SimpleStampRefundCreate,
   AdmissionSlipUpdate, AdmissionDocumentCategoryType,
   SchemeApplicationCreate, SchemeApplicationStatusUpdate, SchemeCategoryCreate, SchemeCreate,
   SchemePaymentCreate, SchemeApplicationRow, SchemeUpdate, SchemeRow, SchemeDocumentCategoryType,
   SchemeApplicationSearch, SchemeApplicationUpdate,
   SchemeCustomFieldCreate, SchemeDocumentRequirementCreate,
-  FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow,
+  FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow, FilerCustomerPaymentCreate,
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate,
   InventoryAdjustmentCreate, InventoryProductCreate, InventoryProductUpdate,
   InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate,
-  DailyClosingSave, DailyClosingExpenseCreate, DailyClosingClose, DailyClosingRange, ReportsRange
+  CashEntryCreate, DailyClosingSave, DailyClosingExpenseCreate, DailyClosingClose, DailyClosingRange, ReportsRange,
+  PhotocopyCreate, PhotocopyRefund, PhotocopySearch
 } from '@shared/schemas'
 
 /**
@@ -60,8 +62,12 @@ const api: WindowApi = {
   // ── Simple stamp transactions ──────────────────────────────────────────
   simpleStampCreate: (input: SimpleStampSaleCreate) => ipcRenderer.invoke('simple-stamp:create', input),
   simpleStampList: (query?: string, fromDate?: string, toDate?: string) => ipcRenderer.invoke('simple-stamp:list', { query, fromDate, toDate }),
+  simpleStampListForExport: (query?: string, fromDate?: string, toDate?: string) =>
+    ipcRenderer.invoke('simple-stamp:list-export', { query, fromDate, toDate }),
   simpleStampDetail: (stampId: number) => ipcRenderer.invoke('simple-stamp:detail', { stampId }),
   simpleStampPayment: (input: StampPaymentCreate) => ipcRenderer.invoke('simple-stamp:payment', input),
+  simpleStampCancel: (input: SimpleStampRefundCreate) => ipcRenderer.invoke('simple-stamp:cancel', input),
+  simpleStampExportExcel: (content: Uint8Array) => ipcRenderer.invoke('simple-stamp:export-excel', content),
   simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => ipcRenderer.invoke('simple-stamp:document-stage', input),
   simpleStampDocumentDiscard: (token: string) => ipcRenderer.invoke('simple-stamp:document-discard', { token }),
   simpleStampDocumentRead: (stampId: number, id: number) => ipcRenderer.invoke('simple-stamp:document-read', { saleId: stampId, id }),
@@ -132,6 +138,9 @@ const api: WindowApi = {
     ipcRenderer.invoke('filer-customers:list', { query, paymentStatus }),
   filerCustomerCreate: (input: FilerCustomerCreate) => ipcRenderer.invoke('filer-customers:create', input),
   filerCustomerUpdate: (input: FilerCustomerUpdate) => ipcRenderer.invoke('filer-customers:update', input),
+  filerCustomerPayments: (customerId: number) => ipcRenderer.invoke('filer-customers:payments:list', customerId),
+  filerCustomerPaymentCreate: (input: FilerCustomerPaymentCreate) =>
+    ipcRenderer.invoke('filer-customers:payments:create', input),
   filerCustomerDocumentStage: (input: {
     originalFilename: string; mimeType: 'image/jpeg' | 'image/png' | 'application/pdf'; contentBase64: string
   }) => ipcRenderer.invoke('filer-customers:documents:stage', input),
@@ -172,12 +181,17 @@ const api: WindowApi = {
   dailyClosingExpenses: () => ipcRenderer.invoke('daily-closing:expenses:list'),
   dailyClosingReport: (range: DailyClosingRange) => ipcRenderer.invoke('daily-closing:report', range),
   dailyClosingSave: (input: DailyClosingSave) => ipcRenderer.invoke('daily-closing:save', input),
+  dailyClosingCashEntryCreate: (input: CashEntryCreate) => ipcRenderer.invoke('daily-closing:cash-entry:create', input),
   dailyClosingExpenseCreate: (input: DailyClosingExpenseCreate) =>
     ipcRenderer.invoke('daily-closing:expense:create', input),
   dailyClosingClose: (input: DailyClosingClose) => ipcRenderer.invoke('daily-closing:close', input),
   dailyClosingUnlock: (date: string) => ipcRenderer.invoke('daily-closing:unlock', date),
   reportsLoad: (range: ReportsRange) => ipcRenderer.invoke('reports:load', range),
-  reportsExportExcel: (content: Uint8Array) => ipcRenderer.invoke('reports:export-excel', content)
+  dashboardDailySummary: (date: string) => ipcRenderer.invoke('dashboard:daily-summary', date),
+  reportsExportExcel: (content: Uint8Array) => ipcRenderer.invoke('reports:export-excel', content),
+  photocopyCreate: (input: PhotocopyCreate) => ipcRenderer.invoke('photocopy:create', input),
+  photocopyList: (input?: Partial<PhotocopySearch>) => ipcRenderer.invoke('photocopy:list', input),
+  photocopyRefund: (input: PhotocopyRefund) => ipcRenderer.invoke('photocopy:refund', input)
 }
 
 contextBridge.exposeInMainWorld('api', api)

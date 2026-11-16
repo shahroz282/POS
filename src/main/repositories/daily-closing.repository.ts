@@ -1,5 +1,5 @@
 import type {
-  DailyClosingExpenseCreate, DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport
+  CashEntryCreate, CashEntryRow, DailyClosingExpenseCreate, DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport
 } from '@shared/schemas'
 import type { DB } from '../db/db'
 
@@ -49,13 +49,6 @@ export class DailyClosingRepository {
       FROM scheme_applications WHERE date(application_date) BETWEEN ? AND ?
     `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
 
-    const filer = this.db.prepare(`
-      SELECT COUNT(*) AS count, COALESCE(SUM(total_fee), 0) AS gross, 0 AS cash, 0 AS noncash,
-        COALESCE(SUM(advance_paid), 0) AS unclassified,
-        COALESCE(SUM(MAX(0, total_fee - advance_paid)), 0) AS outstanding
-      FROM filer_customers WHERE date(filing_date) BETWEEN ? AND ?
-    `).get(fromDate, toDate) as TotalRow & { unclassified: number }
-
     const udhaar = this.db.prepare(`
       SELECT COUNT(*) AS count,
         COALESCE(SUM(CASE WHEN type = 'CHARGE' THEN amount ELSE 0 END), 0) AS gross,
@@ -74,13 +67,16 @@ export class DailyClosingRepository {
       this.module('stampPaper', 'Stamp Paper', stamp),
       this.module('admissions', 'Admissions', admissions),
       this.module('schemes', 'Schemes', schemes),
-      this.module('filerCustomers', 'Filer Customers', filer, filer.unclassified),
-      this.module('udhaar', 'Udhaar', udhaar, udhaar.unclassified)
+      this.module('udhaar', 'Udhaar', udhaar, udhaar.unclassified),
+      this.module('photocopy', 'Photocopy', this.photocopyTotals(fromDate, toDate))
     ]
 
     const openingRow = this.db.prepare(`
       SELECT opening_cash FROM daily_closings WHERE closing_date = ?
     `).get(fromDate) as { opening_cash: number } | undefined
+    const previousClosing = fromDate === toDate ? this.db.prepare(`
+      SELECT actual_cash FROM daily_closings WHERE closing_date = date(?, '-1 day')
+    `).get(fromDate) as { actual_cash: number | null } | undefined : undefined
     const closing = fromDate === toDate ? this.db.prepare(`
       SELECT opening_cash, expected_cash, actual_cash, difference, is_locked, closed_at
       FROM daily_closings WHERE closing_date = ?
@@ -92,7 +88,18 @@ export class DailyClosingRepository {
     const openingCash = openingRow?.opening_cash ?? 0
     const cashReceipts = modules.filter((item) => item.key !== 'udhaar')
       .reduce((sum, item) => sum + item.cashReceived, 0)
-    const expectedCash = openingCash + cashReceipts + cashIn - cashOut - cashExpenses - cashRefunds
+    const filerCashReceipts = this.sum(`
+      SELECT COALESCE(SUM(CASE WHEN entry_type = 'RECEIVED' THEN amount ELSE -amount END), 0) AS amount
+      FROM filer_customer_payments WHERE payment_date BETWEEN ? AND ? AND method = 'CASH'
+    `, fromDate, toDate)
+    const expectedCash = openingCash + cashReceipts + filerCashReceipts + cashIn - cashOut - cashExpenses - cashRefunds
+    const cashEntries = this.db.prepare(`
+      SELECT e.id, e.type, e.amount, e.department, e.reason, e.reference, e.entry_date, e.created_at,
+        u.name AS created_by_name
+      FROM cash_entries e JOIN users u ON u.id = e.created_by
+      WHERE e.entry_date BETWEEN ? AND ?
+      ORDER BY e.entry_date DESC, e.id DESC
+    `).all(fromDate, toDate) as unknown as CashEntryRow[]
 
     return {
       fromDate, toDate,
@@ -105,11 +112,14 @@ export class DailyClosingRepository {
         closedAt: closing.closed_at
       } : null,
       modules,
+      cashEntries,
       cash: {
-        openingCash, cashReceipts, cashIn, cashOut, cashExpenses, cashRefunds, expectedCash,
+        openingCash,
+        openingRecorded: Boolean(openingRow),
+        suggestedOpeningCash: openingRow ? null : previousClosing?.actual_cash ?? null,
+        cashReceipts, filerCashReceipts, cashIn, cashOut, cashExpenses, cashRefunds, expectedCash,
         actualCash: closing?.actual_cash ?? null,
-        difference: closing?.difference ?? null,
-        unclassifiedFilerAdvance: filer.unclassified
+        difference: closing?.difference ?? null
       }
     }
   }
@@ -138,6 +148,14 @@ export class DailyClosingRepository {
       INSERT INTO expenses (category, amount, method, expense_date, note, created_by)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(input.category, input.amount, input.method, input.expenseDate, input.note || null, userId)
+    return Number(result.lastInsertRowid)
+  }
+
+  addCashEntry(input: CashEntryCreate, userId: number): number {
+    const result = this.db.prepare(`
+      INSERT INTO cash_entries (type, amount, reason, entry_date, created_by, department, reference)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.type, input.amount, input.reason, input.entryDate, userId, input.department, input.reference || null)
     return Number(result.lastInsertRowid)
   }
 
@@ -189,14 +207,33 @@ export class DailyClosingRepository {
       SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_refunds
       WHERE date(created_at) BETWEEN ? AND ? AND method IN ('CASH','BANK','EASYPAISA','JAZZCASH')
     `, fromDate, toDate)
+    const simpleRefunds = this.sum(`
+      SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM simple_stamp_refunds
+      WHERE date(created_at) BETWEEN ? AND ?
+    `, fromDate, toDate)
     return {
       count: legacy.count + simpleSales.count,
       gross: legacy.gross + simpleSales.gross,
       cash: legacy.cash + simpleSales.cash,
       noncash: legacy.noncash + simpleSales.noncash,
-      refunds: legacyRefunds,
+      refunds: legacyRefunds + simpleRefunds,
       outstanding: legacy.outstanding + simpleSales.outstanding
     }
+  }
+
+  private photocopyTotals(fromDate: string, toDate: string): TotalRow {
+    return this.db.prepare(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(s.total_amount), 0) AS gross,
+          COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p
+            WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method = 'CASH'), 0) AS cash,
+          COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p
+            WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method != 'CASH'), 0) AS noncash,
+          COALESCE((SELECT SUM(r.amount) FROM photocopy_refunds r
+            WHERE date(r.created_at) BETWEEN ? AND ?), 0) AS refunds,
+          COALESCE(SUM(MAX(0, s.total_amount -
+            COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p WHERE p.sale_id = s.id), 0))), 0) AS outstanding
+        FROM photocopy_sales s WHERE date(s.created_at) BETWEEN ? AND ? AND s.status != 'CANCELLED'
+    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
   }
 
   private cashRefunds(fromDate: string, toDate: string): number {
@@ -208,7 +245,15 @@ export class DailyClosingRepository {
       SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_refunds
       WHERE date(created_at) BETWEEN ? AND ? AND method = 'CASH'
     `, fromDate, toDate)
-    return salesRefunds + stampRefunds
+    const simpleStampRefunds = this.sum(`
+      SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM simple_stamp_refunds
+      WHERE date(created_at) BETWEEN ? AND ? AND method = 'CASH'
+    `, fromDate, toDate)
+    const photocopyRefunds = this.sum(`
+      SELECT COALESCE(SUM(amount), 0) AS amount FROM photocopy_refunds
+      WHERE date(created_at) BETWEEN ? AND ? AND method = 'CASH'
+    `, fromDate, toDate)
+    return salesRefunds + stampRefunds + simpleStampRefunds + photocopyRefunds
   }
 
   private sum(sql: string, fromDate: string, toDate: string): number {

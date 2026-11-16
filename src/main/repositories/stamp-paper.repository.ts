@@ -1,6 +1,6 @@
 import type { DB } from '../db/db'
 import type {
-  SimpleStampDocumentRow, SimpleStampSaleDetail, SimpleStampSaleRow, StampInventoryRow,
+  SimpleStampDocumentRow, SimpleStampRefundRow, SimpleStampSaleDetail, SimpleStampSaleRow, StampInventoryRow,
   StampPartySummary, StampPaymentRow, StampRefundRow, StampSaleDetail, StampSaleListRow
 } from '@shared/schemas'
 
@@ -24,8 +24,10 @@ export class StampPaperRepository {
         COALESCE(s.reference_name, '') AS reference_name, s.ticket_number, s.has_ticket_number, s.customer_name,
         s.register_no AS registration, s.status, s.sale_price_paisa, s.service_charges_paisa,
         s.other_fees_paisa, s.total_payable_paisa,
-        COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0) AS amount_received_paisa,
-        s.total_payable_paisa - COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0) AS outstanding_balance_paisa,
+        MAX(0, COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0)
+          - COALESCE((SELECT SUM(r.amount_paisa) FROM simple_stamp_refunds r WHERE r.stamp_id = s.id), 0)) AS amount_received_paisa,
+        CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE MAX(0, s.total_payable_paisa
+          - COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0)) END AS outstanding_balance_paisa,
         s.remarks
       FROM stamp_paper_transactions s
       WHERE s.transaction_id IS NOT NULL
@@ -69,12 +71,20 @@ export class StampPaperRepository {
   }
 
   listSimpleSales(query: string, fromDate?: string, toDate?: string): SimpleStampSaleRow[] {
+    return this.querySimpleSales(query, fromDate, toDate, true)
+  }
+
+  listSimpleSalesForExport(query: string, fromDate?: string, toDate?: string): SimpleStampSaleRow[] {
+    return this.querySimpleSales(query, fromDate, toDate, false)
+  }
+
+  private querySimpleSales(query: string, fromDate?: string, toDate?: string, limited = true): SimpleStampSaleRow[] {
     const like = `%${query}%`
     return this.db.prepare(`${this.simpleSaleSelect()}
       AND (? = '' OR s.txn_no LIKE ? OR s.transaction_id LIKE ? OR s.reference_name LIKE ? OR s.ticket_number LIKE ? OR s.customer_name LIKE ? OR s.register_no LIKE ?)
       AND (? IS NULL OR date(s.created_at) >= date(?))
       AND (? IS NULL OR date(s.created_at) <= date(?))
-      ORDER BY s.id DESC LIMIT 200
+      ORDER BY s.id DESC ${limited ? 'LIMIT 200' : ''}
     `).all(query, like, like, like, like, like, like, fromDate ?? null, fromDate ?? null, toDate ?? null, toDate ?? null) as unknown as SimpleStampSaleRow[]
   }
 
@@ -89,7 +99,29 @@ export class StampPaperRepository {
       SELECT id, stamp_id, original_filename, mime_type, file_size, created_at
       FROM stamp_transaction_documents WHERE stamp_id = ? ORDER BY id
     `).all(stampId) as unknown as SimpleStampDocumentRow[]
-    return { ...sale, payments, documents }
+    const refunds = this.db.prepare(`
+      SELECT id, amount_paisa, method, reason, created_at
+      FROM simple_stamp_refunds WHERE stamp_id = ? ORDER BY id
+    `).all(stampId) as unknown as SimpleStampRefundRow[]
+    return { ...sale, payments, documents, refunds }
+  }
+
+  findSimpleRefundByKey(key: string): number | undefined {
+    const row = this.db.prepare('SELECT stamp_id FROM simple_stamp_refunds WHERE idempotency_key = ?')
+      .get(key) as { stamp_id: number } | undefined
+    return row?.stamp_id
+  }
+
+  cancelSimpleSale(input: {
+    stampId: number; idempotencyKey: string; amountPaisa: number; method: string; reason: string; createdBy: number
+  }): void {
+    if (input.amountPaisa > 0) {
+      this.db.prepare(`
+        INSERT INTO simple_stamp_refunds (stamp_id, idempotency_key, amount_paisa, method, reason, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(input.stampId, input.idempotencyKey, input.amountPaisa, input.method, input.reason, input.createdBy)
+    }
+    this.db.prepare("UPDATE stamp_paper_transactions SET status = 'CANCELLED' WHERE id = ?").run(input.stampId)
   }
 
   insertSimplePayment(input: {

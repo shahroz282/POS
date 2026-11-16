@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { PageId } from '../app/App'
 import type {
-  DailyClosingExpenseRow, DailyClosingReport, InventorySummary, ReportsReport, SaleRow
+  DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport, InventorySummary, ReportsReport, SaleRow
 } from '@shared/schemas'
 
 interface Props {
@@ -17,10 +17,12 @@ interface DashboardData {
   inventory: InventorySummary
   recentSales: SaleRow[]
   expenses: DailyClosingExpenseRow[]
+  departmentSummary: Array<Pick<DailyClosingModule, 'key' | 'transactionCount' | 'grossAmount' | 'cashReceived' | 'nonCashReceived' | 'refunds' | 'outstanding'>>
 }
 
 const shortcuts: Array<{ page: PageId; label: string; icon: string; description: string }> = [
   { page: 'stamp-paper', label: 'Stamp paper', icon: '📜', description: 'Record a stamp transaction' },
+  { page: 'photocopy', label: 'Photocopy', icon: '📄', description: 'Record a photocopy job' },
   { page: 'admissions', label: 'New admission', icon: '🎓', description: 'Register a student' },
   { page: 'schemes', label: 'Scheme application', icon: '📋', description: 'Create an application' },
   { page: 'udhaar', label: 'Receive udhaar', icon: '💳', description: 'Record a customer repayment' },
@@ -31,10 +33,6 @@ const shortcuts: Array<{ page: PageId; label: string; icon: string; description:
 function today(): string {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-function dayOpeningStorageKey(date: string): string {
-  return `saqib-pos:dashboard-day-opening:${date}`
 }
 
 function money(value: number): string {
@@ -66,16 +64,18 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
   const [dayOpeningDialogOpen, setDayOpeningDialogOpen] = useState(false)
   const [dayOpeningAmount, setDayOpeningAmount] = useState('')
   const [dayOpeningInput, setDayOpeningInput] = useState('')
+  const [dayOpeningReason, setDayOpeningReason] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
       const date = today()
-      const [reportResult, inventoryResult, salesResult, closingResult, expensesResult] = await Promise.all([
+      const [reportResult, inventoryResult, salesResult, summaryResult, closingResult, expensesResult] = await Promise.all([
         window.api.reportsLoad({ fromDate: date, toDate: date }),
         window.api.inventorySummary(),
         window.api.salesList('', date, date),
+        window.api.dashboardDailySummary(date),
         role === 'CASHIER'
           ? Promise.resolve(null)
           : window.api.dailyClosingReport({ fromDate: date, toDate: date }),
@@ -85,6 +85,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
         !reportResult.ok ? reportResult.error.message : '',
         !inventoryResult.ok ? inventoryResult.error.message : '',
         !salesResult.ok ? salesResult.error.message : '',
+        !summaryResult.ok ? summaryResult.error.message : '',
         closingResult && !closingResult.ok ? closingResult.error.message : '',
         expensesResult && !expensesResult.ok ? expensesResult.error.message : ''
       ].filter(Boolean)
@@ -95,7 +96,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
         return
       }
 
-      if (!reportResult.ok || !inventoryResult.ok || !salesResult.ok ||
+      if (!reportResult.ok || !inventoryResult.ok || !salesResult.ok || !summaryResult.ok ||
         (closingResult !== null && !closingResult.ok) ||
         (expensesResult !== null && !expensesResult.ok)) {
         throw new Error('Dashboard data could not be loaded.')
@@ -105,6 +106,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
         report: reportResult.data,
         inventory: inventoryResult.data,
         recentSales: salesResult.data.slice(0, 8),
+        departmentSummary: summaryResult.data,
         dailyClosing: closingResult?.data ?? null,
         expenses: expensesResult?.data ?? []
       })
@@ -119,21 +121,11 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
   useEffect(() => { void load() }, [load])
 
   useEffect(() => {
-    try {
-      const savedAmount = window.localStorage.getItem(dayOpeningStorageKey(today()))
-      if (savedAmount !== null) {
-        const amount = Number(savedAmount)
-        if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100_000_000) {
-          throw new Error('The saved display-only day opening is invalid.')
-        }
-        setDayOpeningAmount(savedAmount)
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The display-only day opening could not be loaded.')
-    }
-  }, [])
+    const openingCash = data?.dailyClosing?.cash.openingCash
+    if (openingCash !== undefined) setDayOpeningAmount(String(openingCash))
+  }, [data?.dailyClosing?.cash.openingCash])
 
-  const saveDayOpening = (event: FormEvent<HTMLFormElement>) => {
+  const saveDayOpening = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
     setNotice('')
@@ -142,14 +134,18 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
       setError('Enter a whole amount between 0 and 100,000,000 PKR.')
       return
     }
-    try {
-      window.localStorage.setItem(dayOpeningStorageKey(today()), String(amount))
-      setDayOpeningAmount(String(amount))
-      setDayOpeningDialogOpen(false)
-      setNotice('Display-only day opening saved. It does not affect cash calculations.')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'The display-only day opening could not be saved.')
+    const result = await window.api.dailyClosingSave({
+      date: today(),
+      openingCash: amount,
+      openingReason: dayOpeningReason
+    })
+    if (!result.ok) {
+      setError(result.error.message)
+      return
     }
+    setDayOpeningDialogOpen(false)
+    setNotice('Opening cash saved and included in today’s cash reconciliation.')
+    await load()
   }
 
   const addExpense = async (event: FormEvent<HTMLFormElement>) => {
@@ -185,6 +181,8 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
   }
 
   const sales = data?.report.modules.find((module) => module.key === 'sales')
+  const stampPaper = data?.departmentSummary.find((module) => module.key === 'stampPaper')
+  const photocopy = data?.departmentSummary.find((module) => module.key === 'photocopy')
   const udhaar = data?.dailyClosing?.modules.find((module) => module.key === 'udhaar')
   const cashReceived = data?.dailyClosing?.cash.cashReceipts ?? sales?.cashReceived ?? 0
   const cashPayments = sales?.cashReceived ?? 0
@@ -257,6 +255,12 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
           <section className={`grid gap-3 sm:grid-cols-2 ${role === 'ADMIN' ? 'xl:grid-cols-6' : 'xl:grid-cols-5'}`}
             aria-label="Today's business summary">
             <SummaryCard label="Today's sales" value={money(sales?.grossAmount ?? 0)} icon="🧾" />
+            <SummaryCard label="Stamp paper today" value={money(stampPaper?.grossAmount ?? 0)}
+              detail={`Collected ${money(stampPaper?.cashReceived ?? 0)}`} icon="📜"
+              onClick={() => onNavigate('stamp-paper')} />
+            <SummaryCard label="Photocopy today" value={money(photocopy?.grossAmount ?? 0)}
+              detail={`Collected ${money(photocopy?.cashReceived ?? 0)}`} icon="📄"
+              onClick={() => onNavigate('photocopy')} />
             <SummaryCard label="Cash received" value={money(cashReceived)} icon="💵" />
             {role === 'ADMIN' && (
               <SummaryCard
@@ -519,7 +523,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
               <div>
                 <h2 id="day-opening-dialog-title" className="text-xl font-semibold text-white">Day opening</h2>
                 <p className="mt-1 text-sm text-gray-400">
-                  Save a display-only amount for {new Date().toLocaleDateString()}.
+                    Set the cash physically in the counter at the start of {new Date().toLocaleDateString()}.
                 </p>
               </div>
               <button type="button" onClick={() => setDayOpeningDialogOpen(false)}
@@ -535,9 +539,12 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
                   className="mt-1 block w-full border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-brand-500 focus:outline-none"
                   placeholder="0" />
               </label>
-              <p className="text-xs text-amber-300">
-                Display only. This amount is saved for today on this device and does not change Daily Closing calculations.
-              </p>
+              <label className="block text-xs font-medium text-gray-400">
+                Reason / note (optional)
+                <input value={dayOpeningReason} onChange={(event) => setDayOpeningReason(event.target.value)}
+                  maxLength={500} className="mt-1 block w-full border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-brand-500 focus:outline-none"
+                  placeholder="For example: cash carried forward from yesterday" />
+              </label>
               <div className="flex justify-end gap-2 border-t border-gray-800 pt-4">
                 <button type="button" onClick={() => setDayOpeningDialogOpen(false)}
                   className="border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800">
@@ -545,7 +552,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
                 </button>
                 <button type="submit"
                   className="bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500">
-                  Save display amount
+                  Save opening cash
                 </button>
               </div>
             </form>

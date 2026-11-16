@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import type { DB } from '../db/db'
-import type { SimpleStampSaleCreate, SimpleStampSaleRow, StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
+import type { SimpleStampRefundCreate, SimpleStampSaleCreate, SimpleStampSaleRow, StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
 import { AuditLogRepository } from '../repositories/audit-log.repository'
 import { StampPaperRepository, type StampPartyRow } from '../repositories/stamp-paper.repository'
 import { getCurrentUser } from './session'
@@ -116,6 +116,10 @@ export class StampPaperService {
     return this.repository.listSimpleSales(query, fromDate, toDate)
   }
 
+  listSimpleSalesForExport(query = '', fromDate?: string, toDate?: string) {
+    return this.repository.listSimpleSalesForExport(query, fromDate, toDate)
+  }
+
   getSimpleSale(stampId: number) {
     const sale = this.repository.getSimpleSale(stampId)
     if (!sale) throw new Error('Stamp paper transaction not found')
@@ -144,6 +148,30 @@ export class StampPaperService {
       })
       this.audit.insert(user.id, 'STAMP_PAYMENT_RECEIVED', 'stamp_paper_transactions', input.saleId, `Receipt ${receiptNumber}`)
       return { receiptNumber }
+    })()
+  }
+
+  cancelSimpleSale(input: SimpleStampRefundCreate, role: string) {
+    const user = getCurrentUser()
+    if (!user) throw new Error('Not logged in')
+    if (role === 'CASHIER') throw new Error('Admin or Manager permission is required to refund stamp transactions')
+    const alreadyCancelled = this.repository.findSimpleRefundByKey(input.idempotencyKey)
+    if (alreadyCancelled) return this.getSimpleSale(alreadyCancelled)
+    return this.db.transaction(() => {
+      const sale = this.repository.getSimpleSale(input.saleId)
+      if (!sale || sale.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
+      this.ensureDayOpen(this.localDate())
+      this.repository.cancelSimpleSale({
+        stampId: sale.id,
+        idempotencyKey: input.idempotencyKey,
+        amountPaisa: sale.amount_received_paisa,
+        method: input.method,
+        reason: input.reason,
+        createdBy: user.id
+      })
+      this.audit.insert(user.id, 'STAMP_TRANSACTION_CANCELLED', 'stamp_paper_transactions', sale.id,
+        `Invoice ${sale.invoice_number}; refund ${sale.amount_received_paisa}; method ${input.method}; ${input.reason}`)
+      return this.repository.getSimpleSale(sale.id)!
     })()
   }
 

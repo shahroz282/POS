@@ -4,7 +4,7 @@ import type { IpcResult } from '@shared/types'
 import {
   FilerCustomerCreateSchema, FilerCustomerDocumentCommitSchema, FilerCustomerDocumentReadSchema,
   FilerCustomerDocumentStageSchema, FilerCustomerDocumentTokenSchema, FilerCustomerIdSchema,
-  FilerCustomerSearchSchema, FilerCustomerUpdateSchema
+  FilerCustomerPaymentCreateSchema, FilerCustomerSearchSchema, FilerCustomerUpdateSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { getCurrentUser } from '../services/session'
@@ -36,6 +36,9 @@ function getDocumentService(): FilerCustomerDocumentService {
 function authenticated<T>(operation: (userId: number) => T): IpcResult<T> {
   const user = getCurrentUser()
   if (!user) return { ok: false, error: { code: 'NOT_AUTHENTICATED', message: 'Not logged in' } }
+  if (user.role !== 'ADMIN') {
+    return { ok: false, error: { code: 'FORBIDDEN', message: 'Only Admin can access filer customer records' } }
+  }
   try {
     return { ok: true, data: operation(user.id) }
   } catch (error) {
@@ -62,6 +65,16 @@ export function registerFilerCustomersHandlers(): void {
     if (!parsed.success) throw new Error(parsed.error.message)
     new FilerCustomersService(getDb()).update(parsed.data, userId)
     return null
+  }))
+  ipcMain.handle('filer-customers:payments:list', (_event, rawCustomerId: unknown) => authenticated(() => {
+    const parsed = FilerCustomerIdSchema.safeParse(rawCustomerId)
+    if (!parsed.success) throw new Error('Select a valid filer customer')
+    return new FilerCustomersService(getDb()).payments(parsed.data)
+  }))
+  ipcMain.handle('filer-customers:payments:create', (_event, rawInput: unknown) => authenticated((userId) => {
+    const parsed = FilerCustomerPaymentCreateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return { id: new FilerCustomersService(getDb()).recordPayment(parsed.data, userId) }
   }))
   ipcMain.handle('filer-customers:documents:stage', (_event, rawInput: unknown) => authenticated((userId) => {
     const parsed = FilerCustomerDocumentStageSchema.safeParse(rawInput)

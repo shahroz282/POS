@@ -90,7 +90,6 @@ export class ReportsRepository {
       FROM stock_movements WHERE date(created_at) BETWEEN ? AND ?
       GROUP BY type ORDER BY type
     `).all(fromDate, toDate) as Array<{ type: string; count: number; quantity: number }>
-    const unclassifiedFiler = base.cash.unclassifiedFilerAdvance
     const cashIn = this.sum('SELECT COALESCE(SUM(amount), 0) AS amount FROM cash_entries WHERE entry_date BETWEEN ? AND ? AND type = ?', fromDate, toDate, 'CASH_IN')
     const cashOut = this.sum('SELECT COALESCE(SUM(amount), 0) AS amount FROM cash_entries WHERE entry_date BETWEEN ? AND ? AND type = ?', fromDate, toDate, 'CASH_OUT')
     const cashExpenses = this.sum('SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE expense_date BETWEEN ? AND ? AND method = ?', fromDate, toDate, 'CASH')

@@ -144,7 +144,7 @@ describe('DailyClosingService', () => {
 
     const report = service.report(reportDate)
     expect(report.modules.map(({ key, transactionCount }) => [key, transactionCount])).toEqual([
-      ['sales', 1], ['stampPaper', 1], ['admissions', 1], ['schemes', 1], ['filerCustomers', 1], ['udhaar', 2]
+      ['sales', 1], ['stampPaper', 1], ['admissions', 1], ['schemes', 1], ['udhaar', 2], ['photocopy', 0]
     ])
     expect(report.modules.find(({ key }) => key === 'sales')).toMatchObject({
       grossAmount: 100, cashReceived: 60, refunds: 7, outstanding: 40
@@ -152,9 +152,7 @@ describe('DailyClosingService', () => {
     expect(report.modules.find(({ key }) => key === 'stampPaper')).toMatchObject({
       grossAmount: 200, cashReceived: 145, outstanding: 75
     })
-    expect(report.modules.find(({ key }) => key === 'filerCustomers')).toMatchObject({
-      unclassifiedReceived: 30, cashReceived: 0
-    })
+    expect(report.modules.some(({ key }) => key === 'filerCustomers')).toBe(false)
     expect(report.cash).toMatchObject({
       openingCash: 0, cashReceipts: 355, cashIn: 45, cashOut: 5,
       cashExpenses: 10, cashRefunds: 7, expectedCash: 378
@@ -184,6 +182,45 @@ describe('DailyClosingService', () => {
     expect(() => service.save(reportDate, 200, userId)).toThrow('locked')
     service.unlock(reportDate, userId)
     expect(service.report(reportDate).closing?.isLocked).toBe(false)
+  })
+
+  it('records categorized cash movements once and rejects them after the date is locked', () => {
+    const entryId = service.addCashEntry({
+      type: 'CASH_OUT',
+      amount: 200,
+      department: 'STAMP_PAPER',
+      reason: 'Cash withdrawn for stamp-paper purchase',
+      reference: 'BANK-REF-12',
+      entryDate: reportDate
+    }, userId)
+    expect(raw.prepare('SELECT type, amount, department, reason, reference FROM cash_entries WHERE id = ?')
+      .get(entryId)).toEqual({
+      type: 'CASH_OUT', amount: 200, department: 'STAMP_PAPER',
+      reason: 'Cash withdrawn for stamp-paper purchase', reference: 'BANK-REF-12'
+    })
+    expect(service.report(reportDate).cash.expectedCash).toBe(-200)
+    expect(service.report(reportDate).cashEntries).toHaveLength(1)
+    service.close(reportDate, 500, 300, userId)
+    expect(() => service.addCashEntry({
+      type: 'CASH_IN', amount: 50, department: 'GENERAL', reason: 'Late entry', entryDate: reportDate
+    }, userId)).toThrow('locked')
+  })
+
+  it('suggests the previous day counted cash without saving it as the next opening', () => {
+    service.close('2025-01-01', 100, 425, userId)
+
+    expect(service.report('2025-01-02').cash).toMatchObject({
+      openingCash: 0,
+      openingRecorded: false,
+      suggestedOpeningCash: 425
+    })
+
+    service.save('2025-01-02', 425, userId)
+    expect(service.report('2025-01-02').cash).toMatchObject({
+      openingCash: 425,
+      openingRecorded: true,
+      suggestedOpeningCash: null
+    })
   })
 
   it('records an audited expense and rejects expenses on a locked date', () => {

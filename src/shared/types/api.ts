@@ -4,7 +4,7 @@ import type {
   CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UserRow,
   UpdateSettingsInput, SettingsRow, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
   StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary,
-  SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow
+  SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow, SimpleStampRefundCreate
 } from '../schemas'
 import type {
   AdmissionClassCreate, AdmissionDetail, AdmissionPaymentCreate, AdmissionPaymentResult,
@@ -18,7 +18,8 @@ import type {
   SchemeDocumentRequirementCreate, SchemeApplicationSearch, SchemeApplicationUpdate
 } from '../schemas'
 import type {
-  FilerCustomerCreate, FilerCustomerDocumentRow, FilerCustomerRow, FilerCustomerUpdate
+  FilerCustomerCreate, FilerCustomerDocumentRow, FilerCustomerPaymentCreate, FilerCustomerPaymentRow,
+  FilerCustomerRow, FilerCustomerUpdate
 } from '../schemas'
 import type {
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarEntryRow, UdhaarOutstandingGroup,
@@ -31,10 +32,12 @@ import type {
   SaleCreate, SaleDetail, SaleReturnCreate, SaleReturnResult, SaleRow
 } from '../schemas'
 import type {
-  DailyClosingClose, DailyClosingExpenseCreate, DailyClosingExpenseRow,
+  CashEntryCreate, DailyClosingClose, DailyClosingExpenseCreate, DailyClosingExpenseRow,
   DailyClosingRange, DailyClosingReport, DailyClosingSave
 } from '../schemas'
+import type { DashboardDailySummary } from '../schemas'
 import type { ReportsRange, ReportsReport } from '../schemas'
+import type { PhotocopyCreate, PhotocopyRefund, PhotocopySaleRow, PhotocopySearch } from '../schemas'
 
 /** Generic IPC result envelope — ARCHITECTURE.md §IPC conventions */
 export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -82,8 +85,11 @@ export interface WindowApi {
   // ── Simple stamp transactions ──────────────────────────────────────────
   simpleStampCreate: (input: SimpleStampSaleCreate) => Promise<IpcResult<SimpleStampSaleRow>>
   simpleStampList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SimpleStampSaleRow[]>>
+  simpleStampListForExport: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SimpleStampSaleRow[]>>
   simpleStampDetail: (stampId: number) => Promise<IpcResult<SimpleStampSaleDetail>>
   simpleStampPayment: (input: StampPaymentCreate) => Promise<IpcResult<{ receiptNumber: string }>>
+  simpleStampCancel: (input: SimpleStampRefundCreate) => Promise<IpcResult<SimpleStampSaleDetail>>
+  simpleStampExportExcel: (content: Uint8Array) => Promise<IpcResult<{ saved: boolean }>>
   simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => Promise<IpcResult<{ token: string; originalFilename: string; mimeType: string; fileSize: number }>>
   simpleStampDocumentDiscard: (token: string) => Promise<IpcResult<null>>
   simpleStampDocumentRead: (stampId: number, id: number) => Promise<IpcResult<{ originalFilename: string; mimeType: string; contentBase64: string }>>
@@ -152,6 +158,8 @@ export interface WindowApi {
   filerCustomersList: (query?: string, paymentStatus?: FilerCustomerRow['payment_status']) => Promise<IpcResult<FilerCustomerRow[]>>
   filerCustomerCreate: (input: FilerCustomerCreate) => Promise<IpcResult<{ id: number }>>
   filerCustomerUpdate: (input: FilerCustomerUpdate) => Promise<IpcResult<null>>
+  filerCustomerPayments: (customerId: number) => Promise<IpcResult<FilerCustomerPaymentRow[]>>
+  filerCustomerPaymentCreate: (input: FilerCustomerPaymentCreate) => Promise<IpcResult<{ id: number }>>
   filerCustomerDocumentStage: (input: {
     originalFilename: string; mimeType: 'image/jpeg' | 'image/png' | 'application/pdf'; contentBase64: string
   }) => Promise<IpcResult<{ token: string; originalFilename: string; mimeType: string; fileSize: number }>>
@@ -189,9 +197,14 @@ export interface WindowApi {
   dailyClosingExpenses: () => Promise<IpcResult<DailyClosingExpenseRow[]>>
   dailyClosingReport: (range: DailyClosingRange) => Promise<IpcResult<DailyClosingReport>>
   dailyClosingSave: (input: DailyClosingSave) => Promise<IpcResult<null>>
+  dailyClosingCashEntryCreate: (input: CashEntryCreate) => Promise<IpcResult<{ id: number }>>
   dailyClosingExpenseCreate: (input: DailyClosingExpenseCreate) => Promise<IpcResult<{ id: number }>>
   dailyClosingClose: (input: DailyClosingClose) => Promise<IpcResult<null>>
   dailyClosingUnlock: (date: string) => Promise<IpcResult<null>>
   reportsLoad: (range: ReportsRange) => Promise<IpcResult<ReportsReport>>
+  dashboardDailySummary: (date: string) => Promise<IpcResult<DashboardDailySummary[]>>
   reportsExportExcel: (content: Uint8Array) => Promise<IpcResult<{ saved: boolean }>>
+  photocopyCreate: (input: PhotocopyCreate) => Promise<IpcResult<PhotocopySaleRow>>
+  photocopyList: (input?: Partial<PhotocopySearch>) => Promise<IpcResult<PhotocopySaleRow[]>>
+  photocopyRefund: (input: PhotocopyRefund) => Promise<IpcResult<PhotocopySaleRow>>
 }

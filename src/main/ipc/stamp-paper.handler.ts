@@ -1,5 +1,6 @@
-import { app, ipcMain, safeStorage } from 'electron'
+import { app, dialog, ipcMain, safeStorage } from 'electron'
 import path from 'path'
+import { writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import type { IpcResult } from '@shared/types'
 import {
@@ -15,7 +16,8 @@ import {
   StampPaymentCreateSchema,
   StampSalesSearchSchema,
   SimpleStampPaymentCreateSchema,
-  SimpleStampSaleCreateSchema
+  SimpleStampSaleCreateSchema,
+  SimpleStampRefundCreateSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { StampPaperService } from '../services/stamp-paper.service'
@@ -153,6 +155,12 @@ export function registerStampPaperHandlers(): void {
     return getService().listSimpleSales(parsed.data.query, parsed.data.fromDate, parsed.data.toDate)
   }))
 
+  ipcMain.handle('simple-stamp:list-export', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = StampSalesSearchSchema.safeParse(rawInput ?? {})
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().listSimpleSalesForExport(parsed.data.query, parsed.data.fromDate, parsed.data.toDate)
+  }))
+
   ipcMain.handle('simple-stamp:detail', (_event, rawInput: unknown) => authenticated(() => {
     const parsed = z.object({ stampId: z.number().int().positive() }).safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)
@@ -164,6 +172,32 @@ export function registerStampPaperHandlers(): void {
     if (!parsed.success) throw new Error(parsed.error.message)
     return getService().recordSimplePayment({ ...parsed.data, saleId: parsed.data.saleId })
   }))
+
+  ipcMain.handle('simple-stamp:cancel', (_event, rawInput: unknown) => authenticated((_userId, role) => {
+    const parsed = SimpleStampRefundCreateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().cancelSimpleSale(parsed.data, role)
+  }))
+
+  ipcMain.handle('simple-stamp:export-excel', async (_event, rawContent: unknown) => {
+    const user = getCurrentUser()
+    if (!user) return { ok: false, error: { code: 'NOT_AUTHENTICATED', message: 'Not logged in' } }
+    try {
+      if (!(rawContent instanceof Uint8Array) || rawContent.byteLength === 0 || rawContent.byteLength > 25 * 1024 * 1024) {
+        throw new Error('The Excel export is invalid or too large')
+      }
+      const result = await dialog.showSaveDialog({
+        title: 'Export stamp-paper history',
+        defaultPath: path.join(app.getPath('documents'), 'stamp-paper-history.xlsx'),
+        filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+      })
+      if (result.canceled || !result.filePath) return { ok: true, data: { saved: false } }
+      await writeFile(result.filePath, rawContent)
+      return { ok: true, data: { saved: true } }
+    } catch (error) {
+      return { ok: false, error: { code: 'STAMP_ERROR', message: error instanceof Error ? error.message : 'Excel export failed' } }
+    }
+  })
 
   ipcMain.handle('simple-stamp:document-stage', (_event, rawInput: unknown) => authenticated((userId) => {
     const parsed = StampDocumentPickSchema.safeParse(rawInput)

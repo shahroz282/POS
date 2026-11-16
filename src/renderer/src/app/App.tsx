@@ -18,6 +18,7 @@ import LoginPage from '../pages/LoginPage'
 import SetupAdminPage from '../pages/SetupAdminPage'
 import UsersPage from '../pages/UsersPage'
 import FilerCustomersPage from '../pages/FilerCustomersPage'
+import PhotocopyPage from '../pages/PhotocopyPage'
 
 export type PageId =
   | 'login'
@@ -25,6 +26,7 @@ export type PageId =
   | 'dashboard'
   | 'sales'
   | 'stamp-paper'
+  | 'photocopy'
   | 'admissions'
   | 'filer-customers'
   | 'schemes'
@@ -42,6 +44,7 @@ const PAGE_MAP: Record<AppPageId, React.ReactNode> = {
   dashboard: <DashboardPage />,
   sales: <SalesPage />,
   'stamp-paper': <StampPaperPage />,
+  photocopy: <PhotocopyPage />,
   admissions: <AdmissionsPage />,
   'filer-customers': <FilerCustomersPage />,
   schemes: <SchemesPage />,
@@ -59,10 +62,10 @@ const PAGE_MAP: Record<AppPageId, React.ReactNode> = {
  * Returns the page IDs this role can access.
  */
 export function getAllowedPages(role: Role): AppPageId[] {
-  const pages: AppPageId[] = ['dashboard', 'sales', 'stamp-paper', 'admissions', 'filer-customers', 'schemes', 'udhaar']
+  const pages: AppPageId[] = ['dashboard', 'sales', 'stamp-paper', 'photocopy', 'admissions', 'schemes', 'udhaar']
 
   if (role === 'ADMIN') {
-    pages.push('daily-closing', 'inventory', 'reports')
+    pages.push('filer-customers', 'daily-closing', 'inventory', 'reports')
   }
   if (Permissions.canManageUsers(role)) pages.push('users')
   if (Permissions.canSettings(role)) pages.push('settings')

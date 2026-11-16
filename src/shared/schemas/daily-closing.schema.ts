@@ -10,7 +10,8 @@ export const DailyClosingRangeSchema = z.object({
 })
 export const DailyClosingSaveSchema = z.object({
   date: DailyClosingDateSchema,
-  openingCash: z.number().int().min(0).max(100_000_000)
+  openingCash: z.number().int().min(0).max(100_000_000),
+  openingReason: z.string().trim().max(500).optional().or(z.literal(''))
 })
 export const DailyClosingCloseSchema = DailyClosingSaveSchema.extend({
   actualCash: z.number().int().min(0).max(100_000_000)
@@ -22,11 +23,24 @@ export const DailyClosingExpenseCreateSchema = z.object({
   expenseDate: DailyClosingDateSchema,
   note: z.string().trim().max(500).optional().or(z.literal(''))
 })
+export const CashEntryCreateSchema = z.object({
+  type: z.enum(['CASH_IN', 'CASH_OUT']),
+  amount: z.number().int().positive().max(100_000_000),
+  department: z.enum(['GENERAL', 'SALES', 'STAMP_PAPER', 'ADMISSIONS', 'SCHEMES', 'PHOTOCOPY', 'INVENTORY', 'FILER_CUSTOMERS', 'UDHAAR']),
+  reason: z.string().trim().min(1).max(500),
+  reference: z.string().trim().max(100).optional().or(z.literal('')),
+  entryDate: DailyClosingDateSchema
+})
 
 export type DailyClosingSave = z.infer<typeof DailyClosingSaveSchema>
 export type DailyClosingClose = z.infer<typeof DailyClosingCloseSchema>
 export type DailyClosingRange = z.infer<typeof DailyClosingRangeSchema>
 export type DailyClosingExpenseCreate = z.infer<typeof DailyClosingExpenseCreateSchema>
+export type CashEntryCreate = z.infer<typeof CashEntryCreateSchema>
+export const CashDepartmentSchema = z.enum([
+  'GENERAL', 'SALES', 'STAMP_PAPER', 'ADMISSIONS', 'SCHEMES', 'PHOTOCOPY', 'INVENTORY', 'FILER_CUSTOMERS', 'UDHAAR'
+])
+export type CashDepartment = z.infer<typeof CashDepartmentSchema>
 export type DailyClosingExpenseRow = {
   id: number
   category: string
@@ -36,8 +50,19 @@ export type DailyClosingExpenseRow = {
   note: string | null
   created_by_name: string
 }
+export type CashEntryRow = {
+  id: number
+  type: 'CASH_IN' | 'CASH_OUT'
+  amount: number
+  department: CashDepartment
+  reason: string
+  reference: string | null
+  entry_date: string
+  created_at: string
+  created_by_name: string
+}
 export type DailyClosingModule = {
-  key: 'sales' | 'stampPaper' | 'admissions' | 'schemes' | 'filerCustomers' | 'udhaar'
+  key: 'sales' | 'stampPaper' | 'admissions' | 'schemes' | 'udhaar' | 'photocopy'
   label: string
   transactionCount: number
   grossAmount: number
@@ -47,6 +72,8 @@ export type DailyClosingModule = {
   refunds: number
   outstanding: number
 }
+export type DashboardDailySummary = Pick<DailyClosingModule,
+  'key' | 'transactionCount' | 'grossAmount' | 'cashReceived' | 'nonCashReceived' | 'refunds' | 'outstanding'>
 export type DailyClosingReport = {
   fromDate: string
   toDate: string
@@ -59,9 +86,13 @@ export type DailyClosingReport = {
     closedAt: string | null
   } | null
   modules: DailyClosingModule[]
+  cashEntries: CashEntryRow[]
   cash: {
     openingCash: number
+    openingRecorded: boolean
+    suggestedOpeningCash: number | null
     cashReceipts: number
+    filerCashReceipts: number
     cashIn: number
     cashOut: number
     cashExpenses: number
@@ -69,6 +100,5 @@ export type DailyClosingReport = {
     expectedCash: number
     actualCash: number | null
     difference: number | null
-    unclassifiedFilerAdvance: number
   }
 }

@@ -197,6 +197,21 @@ export const SimpleStampSaleCreateSchema = z.object({
 export type SimpleStampSaleCreate = z.infer<typeof SimpleStampSaleCreateSchema>
 
 export const SimpleStampPaymentCreateSchema = StampPaymentCreateSchema
+export const SimpleStampRefundCreateSchema = z.object({
+  saleId: z.number().int().positive(),
+  idempotencyKey: z.string().uuid(),
+  method: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),
+  reason: z.string().trim().min(1).max(500)
+})
+export type SimpleStampRefundCreate = z.infer<typeof SimpleStampRefundCreateSchema>
+
+export interface SimpleStampRefundRow {
+  id: number
+  amount_paisa: number
+  method: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
+  reason: string
+  created_at: string
+}
 
 export interface SimpleStampSaleRow {
   id: number
@@ -221,6 +236,7 @@ export interface SimpleStampSaleRow {
 export interface SimpleStampSaleDetail extends SimpleStampSaleRow {
   payments: StampPaymentRow[]
   documents: SimpleStampDocumentRow[]
+  refunds: SimpleStampRefundRow[]
 }
 
 export interface SimpleStampDocumentRow {

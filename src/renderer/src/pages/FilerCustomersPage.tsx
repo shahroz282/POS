@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { FilerCustomerRow } from '@shared/schemas'
+import type { FilerCustomerPaymentRow, FilerCustomerRow } from '@shared/schemas'
 
 type CustomerForm = {
   customerName: string
@@ -70,13 +70,23 @@ export default function FilerCustomersPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [ledgerCustomer, setLedgerCustomer] = useState<FilerCustomerRow | null>(null)
+  const [payments, setPayments] = useState<FilerCustomerPaymentRow[]>([])
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'>('CASH')
+  const [paymentDate, setPaymentDate] = useState(today)
+  const [paymentNote, setPaymentNote] = useState('')
 
   const loadCustomers = useCallback(async () => {
     const result = await window.api.filerCustomersList(
       search, statusFilter ? statusFilter as FilerCustomerRow['payment_status'] : undefined
     )
-    if (result.ok) setCustomers(result.data)
-    else setError(result.error.message)
+    if (result.ok) {
+      setCustomers(result.data)
+      return result.data
+    }
+    setError(result.error.message)
+    return null
   }, [search, statusFilter])
 
   useEffect(() => {
@@ -205,6 +215,54 @@ export default function FilerCustomersPage() {
     }
   }
 
+  const openPayments = async (customer: FilerCustomerRow) => {
+    const result = await window.api.filerCustomerPayments(customer.id)
+    if (!result.ok) {
+      setError(result.error.message)
+      return
+    }
+    setLedgerCustomer(customer)
+    setPayments(result.data)
+    setPaymentAmount('')
+    setPaymentDate(today())
+    setPaymentNote('')
+  }
+
+  const recordPayment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!ledgerCustomer) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await window.api.filerCustomerPaymentCreate({
+        customerId: ledgerCustomer.id,
+        idempotencyKey: crypto.randomUUID(),
+        entryType: 'RECEIVED',
+        amount: Number(paymentAmount),
+        method: paymentMethod,
+        paymentDate,
+        note: paymentNote
+      })
+      if (!result.ok) {
+        setError(result.error.message)
+        return
+      }
+      setNotice('Filer payment recorded.')
+      const advancePaid = ledgerCustomer.advance_paid + Number(paymentAmount)
+      const updatedCustomer = {
+        ...ledgerCustomer,
+        advance_paid: advancePaid,
+        pending_balance: Math.max(0, ledgerCustomer.pending_balance - Number(paymentAmount)),
+        payment_status: advancePaid >= ledgerCustomer.total_fee ? 'DONE' as const : 'PENDING' as const
+      }
+      await Promise.all([loadCustomers(), openPayments(updatedCustomer)])
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not record filer payment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const viewProof = async (customer: FilerCustomerRow) => {
     if (!customer.proof_document_id) return
     const result = await window.api.filerCustomerDocumentRead(customer.id, customer.proof_document_id)
@@ -303,13 +361,30 @@ export default function FilerCustomersPage() {
                     ? <button type="button" onClick={() => void viewProof(customer)} className="text-brand-300 hover:text-brand-200">{customer.proof_filename || 'View proof'}</button>
                     : <span className="text-gray-600">—</span>}
                 </td>
-                <td className="px-3 py-3"><button type="button" onClick={() => startEdit(customer)} className="text-brand-300 hover:text-brand-200">Edit</button></td>
+                <td className="px-3 py-3"><button type="button" onClick={() => void openPayments(customer)} className="mr-3 text-brand-300 hover:text-brand-200">Payments</button><button type="button" onClick={() => startEdit(customer)} className="text-gray-300 hover:text-white">Edit</button></td>
               </tr>
             ))}
           </tbody>
         </table>
         {customers.length === 0 && <p className="py-10 text-center text-sm text-gray-500">No filer customers found.</p>}
       </div>
+
+      {ledgerCustomer && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" role="presentation" onClick={() => setLedgerCustomer(null)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="filer-ledger-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto border border-gray-700 bg-gray-900 p-5" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between gap-3"><div><h2 id="filer-ledger-title" className="text-lg font-semibold text-white">Filer payment ledger</h2><p className="mt-1 text-xs text-gray-400">{ledgerCustomer.customer_name} · balance {money(ledgerCustomer.pending_balance)}</p></div><button type="button" onClick={() => setLedgerCustomer(null)} className="text-sm text-gray-400">Close</button></div>
+            <form onSubmit={(event) => void recordPayment(event)} className="grid gap-3 border-b border-gray-800 pb-4 sm:grid-cols-2">
+              <label className="text-xs text-gray-400">Amount (PKR)<input className={`mt-1 ${inputClass}`} type="number" min="1" step="1" required max={ledgerCustomer.pending_balance} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>
+              <label className="text-xs text-gray-400">Payment method<select className={`mt-1 ${inputClass}`} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}><option value="CASH">Cash</option><option value="BANK">Bank</option><option value="EASYPAISA">EasyPaisa</option><option value="JAZZCASH">JazzCash</option></select></label>
+              <label className="text-xs text-gray-400">Payment date<input className={`mt-1 ${inputClass}`} type="date" required max={today()} value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label>
+              <label className="text-xs text-gray-400">Remark (optional)<input className={`mt-1 ${inputClass}`} maxLength={500} value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} /></label>
+              <button type="submit" disabled={busy || ledgerCustomer.pending_balance <= 0} className="bg-brand-600 px-4 py-2 text-sm text-white disabled:opacity-50">{busy ? 'Saving…' : 'Record payment'}</button>
+            </form>
+            <p className="my-3 text-xs text-gray-500">Only dated cash payments affect the till reconciliation; historical advances without payment details remain unclassified.</p>
+            <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Date', 'Entry', 'Method', 'Amount', 'Note', 'Entered by'].map((head) => <th key={head} className="px-2 py-2">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{payments.map((payment) => <tr key={payment.id}><td className="px-2 py-2 text-gray-400">{payment.payment_date}</td><td className={payment.entry_type === 'RECEIVED' ? 'px-2 py-2 text-green-300' : 'px-2 py-2 text-orange-300'}>{payment.entry_type}</td><td className="px-2 py-2 text-gray-300">{payment.method}</td><td className="px-2 py-2 text-gray-200">{money(payment.amount)}</td><td className="px-2 py-2 text-gray-400">{payment.note || '—'}</td><td className="px-2 py-2 text-gray-400">{payment.created_by_name}</td></tr>)}{payments.length === 0 && <tr><td colSpan={6} className="py-5 text-center text-gray-500">No payment entries.</td></tr>}</tbody></table></div>
+          </section>
+        </div>
+      )}
 
     </div>
   )
@@ -339,7 +414,7 @@ function CustomerFields({
       <label><span className={labelClass}>Filing date *</span><input required type="date" value={form.filingDate} onChange={(event) => setField('filingDate', event.target.value)} className={inputClass} /></label>
       <label><span className={labelClass}>Filing category *</span><select value={form.category} onChange={(event) => setField('category', event.target.value)} className={inputClass}>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select></label>
       <label><span className={labelClass}>Total fee (PKR) *</span><input required type="number" min="0" step="1" value={form.totalFee} onChange={(event) => setField('totalFee', event.target.value)} className={inputClass} /></label>
-      <label><span className={labelClass}>Advance paid (PKR) *</span><input required type="number" min="0" step="1" value={form.advancePaid} onChange={(event) => setField('advancePaid', event.target.value)} className={inputClass} /></label>
+      <label><span className={labelClass}>Opening advance (unclassified) (PKR) *</span><input required type="number" min="0" step="1" value={form.advancePaid} onChange={(event) => setField('advancePaid', event.target.value)} className={inputClass} /></label>
       <div className="rounded border border-gray-800 bg-gray-950 px-3 py-2"><span className={labelClass}>Pending balance</span><p className="text-sm font-medium text-gray-100">{money(pendingBalance)}</p></div>
       <label><span className={labelClass}>Filing / payment proof (PDF, JPG, PNG; max 10 MB)</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => setProofFile(event.target.files?.[0] ?? null)} className={`${inputClass} file:mr-3 file:border-0 file:bg-gray-800 file:px-2 file:py-1 file:text-xs`} />{proofFile && <span className="mt-1 block truncate text-xs text-gray-500">{proofFile.name}</span>}</label>
     </div>

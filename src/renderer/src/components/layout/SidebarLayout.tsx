@@ -11,6 +11,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { id: 'dashboard',     label: 'Dashboard',      icon: '🏠' },
   { id: 'sales',         label: 'Normal Sales',   icon: '🛒' },
   { id: 'stamp-paper',   label: 'Stamp Paper',    icon: '📜' },
+  { id: 'photocopy',     label: 'Photocopy',      icon: '📄' },
   { id: 'admissions',    label: 'Admissions',     icon: '🎓' },
   { id: 'filer-customers', label: 'Filer Customers', icon: '🧾' },
   { id: 'schemes',       label: 'Schemes',        icon: '📋' },

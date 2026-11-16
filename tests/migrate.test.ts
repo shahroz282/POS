@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import BetterSqlite3 from 'better-sqlite3'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { runMigrations } from '../src/main/db/migrate'
 import type { DB } from '../src/main/db/db'
@@ -42,6 +43,8 @@ describe('runMigrations', () => {
     raw.pragma('journal_mode = WAL')
     db = wrapBetterSqlite3(raw)
   })
+
+  afterEach(() => db.close())
 
   it('applies 001_init.sql and records it in schema_migrations', () => {
     runMigrations(db)
@@ -157,6 +160,52 @@ describe('runMigrations', () => {
       .toMatchObject({ id: entryId, receipt_no: null, method: null })
     expect(db.prepare('SELECT balance FROM v_udhaar_balance WHERE customer_id = ?').get(customerId))
       .toMatchObject({ balance: 700 })
+  })
+
+  it('backfills legacy filer advances as unclassified ledger entries', () => {
+    const projectMigrations = path.join(__dirname, '..', 'migrations')
+    const temporaryMigrations = fs.mkdtempSync(path.join(os.tmpdir(), 'pos-migrations-'))
+    const previousMigrationsDir = process.env.MIGRATIONS_DIR
+    try {
+      for (const file of fs.readdirSync(projectMigrations).filter((name) =>
+        name.endsWith('.sql') && Number.parseInt(name, 10) < 21
+      )) {
+        fs.copyFileSync(path.join(projectMigrations, file), path.join(temporaryMigrations, file))
+      }
+      process.env.MIGRATIONS_DIR = temporaryMigrations
+      runMigrations(db)
+
+      const userId = Number(db.prepare(
+        "INSERT INTO users (name, username, password_hash, role) VALUES ('Admin', 'admin', 'hash', 'ADMIN')"
+      ).run().lastInsertRowid)
+      const customerId = Number(db.prepare(`
+        INSERT INTO filer_customers
+          (customer_name, cnic, filing_date, category, total_fee, advance_paid, created_by)
+        VALUES ('Legacy Filer', 'legacy', '2025-03-01', 'ANNUAL_RETURN', 900, 350, ?)
+      `).run(userId).lastInsertRowid)
+
+      const latestMigration = fs
+        .readdirSync(projectMigrations)
+        .find((name) => name.startsWith('021_'))
+      if (!latestMigration) throw new Error('Missing filer payment migration')
+      fs.copyFileSync(path.join(projectMigrations, latestMigration), path.join(temporaryMigrations, latestMigration))
+      runMigrations(db)
+
+      expect(db.prepare(`
+        SELECT customer_id, entry_type, amount, method, payment_date
+        FROM filer_customer_payments WHERE customer_id = ?
+      `).get(customerId)).toEqual({
+        customer_id: customerId,
+        entry_type: 'RECEIVED',
+        amount: 350,
+        method: 'UNCLASSIFIED',
+        payment_date: '2025-03-01'
+      })
+    } finally {
+      if (previousMigrationsDir === undefined) delete process.env.MIGRATIONS_DIR
+      else process.env.MIGRATIONS_DIR = previousMigrationsDir
+      fs.rmSync(temporaryMigrations, { recursive: true, force: true })
+    }
   })
 
   it('creates the settings table with default values', () => {
