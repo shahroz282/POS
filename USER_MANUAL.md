@@ -132,11 +132,11 @@ Use this section to record stamp-related transactions and their payments.
 
 1. Open **New Transaction**.
 2. Enter the transaction details requested on screen, such as reference or department, customer/registration information, date, and status.
-3. Enter the sale price, service charges, and any payment received. Choose the correct payment method.
+3. Enter the sale price **including commission**, then enter the commission amount and any payment received. The app subtracts commission from the entered sale price for the before-commission amount; it does not add commission on top. Choose the correct payment method.
 4. Add optional remarks or attach a JPEG, PNG, or PDF document if needed.
-5. Select **Save Transaction**.
+5. Select **Save Transaction**. The app stays on **New Transaction**, clears the form for the next entry, and shows the saved invoice number. Select **Print saved receipt** if you want to print it now.
 
-Use **History** to search by invoice, ticket, reference, customer, or registration. You can apply date filters and select **Search**. Open a row to view its payment history, record a later payment when a balance remains, and print a receipt. Managers/Admins can use available edit, cancellation/refund, and attachment-management actions. **Export Excel** exports the visible transaction history.
+Use **History** when you want to search by invoice, ticket, reference, customer, or registration. You can apply date filters and select **Search**. Select **Add payment** on a row with an unpaid balance to open its payment form, or open a row to view its payment history and print a receipt. Managers/Admins can use available edit, cancellation/refund, and attachment-management actions. **Export Excel** exports the visible transaction history.
 
 ## 8. Photocopy
 
@@ -214,10 +214,10 @@ Use this section for customer credit accounts and repayments.
 1. Select **Add customer** and enter the customer's name and optional contact details.
 2. Open the customer account.
 3. Select **Add charge** to record an amount owed, or **Record repayment** when the customer pays.
-4. For a repayment, enter the amount, date, payment method, and optional reference or note.
+4. For a repayment, enter the amount, date, payment method, and optional reference or note. Select **Use full balance** beside the amount field to fill in the entire outstanding amount; review the amount and payment details, then record the repayment.
 5. Review the account ledger and remaining balance. Print the repayment receipt when needed.
 
-The **Outstanding by customer** view helps locate unpaid amounts, including amounts associated with a module or reference. Cash repayments are also included in the cash reconciliation; they are not counted twice as a second cash receipt.
+The **Outstanding by customer** view helps locate unpaid amounts, including amounts associated with a module or reference. Select **Pay** beside any customer row, then choose **Pay** beside the specific outstanding record. Enter the amount, payment method, and any available date, reference, or note; the payment is recorded through that module's existing payment service. Admission payments are allocated to the selected fee record. For Udhaar cash repayments, the cash reconciliation includes the repayment only once.
 
 ## 13. Stock
 
@@ -251,6 +251,8 @@ Galla Cash is a read-only cash and business-activity overview. It is available t
 4. Select a module card to see its detailed breakdown. Expand **How expected cash is calculated** to see the components.
 
 Expected drawer cash is calculated from opening cash, section cash receipts, dated Filer receipts, saved cash movements, cash-paid expenses, and cash refunds. Udhaar cash repayments are included through cash movements.
+
+Active Stamp Ledger transactions are included in the report, including unpaid transactions; their remaining amount appears as outstanding. The Stamp Paper card shows how the billed total is made up of sale price before commission, commission, and any other fees. Cancelled transactions are excluded.
 
 The current Galla Cash page does not provide controls to enter manual cash-in/cash-out entries or to count and close the drawer. An Admin can unlock a locked day if the button is shown. Do not treat this screen as a place to record a physical cash count.
 

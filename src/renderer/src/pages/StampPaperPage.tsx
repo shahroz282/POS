@@ -66,6 +66,7 @@ export default function StampPaperPage() {
   const [appliedFilters, setAppliedFilters] = useState<{ query: string; fromDate?: string; toDate?: string }>({ query: '' })
   const [exporting, setExporting] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SimpleStampSaleDetail | null>(null)
+  const [recentlySavedSale, setRecentlySavedSale] = useState<SimpleStampSaleDetail | null>(null)
   const [editingSaleId, setEditingSaleId] = useState<number | null>(null)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [laterPaymentMethod, setLaterPaymentMethod] = useState<PaymentMethod>('CASH')
@@ -85,9 +86,10 @@ export default function StampPaperPage() {
   const salePricePaisa = parsePaisa(salePrice) ?? 0
   const servicePaisa = parsePaisa(serviceCharges) ?? 0
   const receivedPaisa = parsePaisa(amountReceived) ?? 0
-  const totalPaisa = salePricePaisa + servicePaisa
+  const totalPaisa = salePricePaisa + (editingSaleId ? selectedSale?.other_fees_paisa ?? 0 : 0)
   const balancePaisa = totalPaisa - receivedPaisa
   const canManageDocuments = role === 'ADMIN' || role === 'MANAGER'
+  const receiptSale = selectedSale ?? recentlySavedSale
 
   const loadSales = async (search = query) => {
     const result = await window.api.simpleStampList(search, fromDate || undefined, toDate || undefined)
@@ -181,7 +183,11 @@ export default function StampPaperPage() {
       setError('Enter valid amounts with no more than two decimal places.')
       return
     }
-    if (!editingSaleId && received > sale + charges) {
+    if (charges > sale) {
+      setError('Commission cannot exceed the sale price that already includes it.')
+      return
+    }
+    if (!editingSaleId && received > sale) {
       setError('Amount received cannot exceed total payable.')
       return
     }
@@ -193,7 +199,7 @@ export default function StampPaperPage() {
       setError('Enter the Department.')
       return
     }
-    if (!editingSaleId && sale + charges === 65000 && !hasTicketNumber) {
+    if (!editingSaleId && sale === 65000 && !hasTicketNumber) {
       setError('Ticket selection is required for a Rs.650 entry.')
       return
     }
@@ -218,6 +224,7 @@ export default function StampPaperPage() {
         })
         if (!result.ok) throw new Error(result.error.message)
         setSelectedSale(result.data)
+        setRecentlySavedSale(null)
         setEditingSaleId(null)
         setNotice(`Transaction ${result.data.invoice_number} updated.`)
         await loadSales()
@@ -252,7 +259,8 @@ export default function StampPaperPage() {
       })
       if (!result.ok) throw new Error(result.error.message)
       const detail = await window.api.simpleStampDetail(result.data.id)
-      if (detail.ok) setSelectedSale(detail.data)
+      setSelectedSale(null)
+      setRecentlySavedSale(detail.ok ? detail.data : null)
       attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl))
       setAttachments([])
       setNotice(`Transaction saved. Invoice ${result.data.invoice_number}`)
@@ -273,7 +281,6 @@ export default function StampPaperPage() {
       setPaymentRemarks('')
       setRemarks('')
       await loadSales('')
-      setActiveTab('history')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save stamp paper transaction')
     } finally {
@@ -283,6 +290,7 @@ export default function StampPaperPage() {
 
   const openTransaction = async (sale: SimpleStampSaleRow) => {
     setError('')
+    setRecentlySavedSale(null)
     setEditingSaleId(null)
     const result = await window.api.simpleStampDetail(sale.id)
     if (!result.ok) return setError(result.error.message)
@@ -294,6 +302,7 @@ export default function StampPaperPage() {
     if (sale.status === 'CANCELLED') return
     setError('')
     setNotice('')
+    setRecentlySavedSale(null)
     const result = await window.api.simpleStampDetail(sale.id)
     if (!result.ok) return setError(result.error.message)
     const detail = result.data
@@ -305,7 +314,7 @@ export default function StampPaperPage() {
     setCustomerName(detail.customer_name)
     setRegistration(detail.registration)
     setStatus(detail.status)
-    setSalePrice((detail.sale_price_paisa / 100).toFixed(2))
+    setSalePrice(((detail.sale_price_paisa + detail.service_charges_paisa) / 100).toFixed(2))
     setServiceCharges((detail.service_charges_paisa / 100).toFixed(2))
     setAmountReceived((detail.amount_received_paisa / 100).toFixed(2))
     setCommissionLabel(detail.commission_label || '')
@@ -371,7 +380,7 @@ export default function StampPaperPage() {
             Customer: sale.customer_name,
             Registration: sale.registration,
             Status: sale.status,
-            'Sale price (PKR)': sale.sale_price_paisa / 100,
+            'Sale price before commission (PKR)': sale.sale_price_paisa / 100,
             'Commission (PKR)': sale.service_charges_paisa / 100,
             'Historical other fees (PKR)': sale.other_fees_paisa / 100,
             'Total payable (PKR)': sale.total_payable_paisa / 100,
@@ -425,11 +434,20 @@ export default function StampPaperPage() {
       </header>
 
       <nav className="flex gap-1 border-b border-gray-800" aria-label="Stamp paper sections">
-        {([['new', 'New Transaction'], ['history', 'History']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setActiveTab(id)} className={`border-b-2 px-4 py-2.5 text-sm ${activeTab === id ? 'border-brand-400 text-brand-300' : 'border-transparent text-gray-500 hover:text-gray-200'}`}>{label}</button>)}
+        {([['new', 'New Transaction'], ['history', 'History']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => { setActiveTab(id); setRecentlySavedSale(null) }} className={`border-b-2 px-4 py-2.5 text-sm ${activeTab === id ? 'border-brand-400 text-brand-300' : 'border-transparent text-gray-500 hover:text-gray-200'}`}>{label}</button>)}
       </nav>
 
-      {error && <div role="alert" className="border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
-      {notice && <div role="status" className="border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">{notice}</div>}
+      <div aria-live="polite" className="sticky top-0 z-20 space-y-3">
+        {error && <div role="alert" className="border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
+        {notice && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border border-emerald-900 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+          <span>{notice}</span>
+          {activeTab === 'new' && recentlySavedSale && receiptSettings && (
+            <button type="button" onClick={() => window.print()} className="border border-emerald-800 px-3 py-1.5 text-xs hover:bg-emerald-900/40">
+              Print saved receipt
+            </button>
+          )}
+        </div>}
+      </div>
 
       {activeTab === 'new' && <form onSubmit={(event) => void saveTransaction(event)} className="space-y-5">
         <section className={sectionClass}>
@@ -468,12 +486,12 @@ export default function StampPaperPage() {
         <section className={sectionClass}>
           <h2 className="mb-4 text-sm font-semibold text-gray-100">Payment Information</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {amountField('Sale price', salePrice, setSalePrice)}
+            {amountField('Sale price (includes commission)', salePrice, setSalePrice)}
             {amountField('Commission', serviceCharges, setServiceCharges)}
             {editingSaleId && selectedSale
               ? <>
                 <Info label="Amount received" value={formatPkr(selectedSale.amount_received_paisa)} />
-                <Info label="Total payable" value={formatPkr(totalPaisa + selectedSale.other_fees_paisa)} />
+                <Info label="Total payable" value={formatPkr(totalPaisa)} />
                 <Info label="Remaining balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} />
               </>
               : <>
@@ -485,6 +503,10 @@ export default function StampPaperPage() {
                 <label className="sm:col-span-2"><span className={labelClass}>Payment remarks (optional)</span><input className={inputClass} value={paymentRemarks} onChange={(event) => setPaymentRemarks(event.target.value)} maxLength={500} /></label>
               </>}
           </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Sale price before commission {formatPkr(Math.max(0, salePricePaisa - servicePaisa))} + commission {formatPkr(servicePaisa)}
+            {' = sale price '}{formatPkr(salePricePaisa)}.
+          </p>
         </section>
         {!editingSaleId && <section className={sectionClass}>
           <div className="mb-4"><h2 className="text-sm font-semibold text-gray-100">Documents (optional)</h2><p className="mt-1 text-xs text-gray-500">Upload multiple JPEG, PNG, or PDF files; each file can be up to 10 MB.</p></div>
@@ -531,6 +553,7 @@ export default function StampPaperPage() {
                   <td className="px-2 py-3 text-gray-300">{formatPkr(sale.outstanding_balance_paisa)}</td>
                   <td className="px-2 py-3"><div className="flex gap-2">
                     <button type="button" onClick={(event) => { event.stopPropagation(); void openTransaction(sale) }} className="text-brand-300 hover:text-brand-200">View</button>
+                    {sale.status !== 'CANCELLED' && sale.outstanding_balance_paisa > 0 && <button type="button" onClick={(event) => { event.stopPropagation(); void openTransaction(sale) }} className="text-emerald-300 hover:text-emerald-200">Add payment</button>}
                     {sale.status !== 'CANCELLED' && <button type="button" onClick={(event) => { event.stopPropagation(); void editTransaction(sale) }} className="text-amber-300 hover:text-amber-200">Edit</button>}
                   </div></td>
                 </tr>)}
@@ -544,7 +567,7 @@ export default function StampPaperPage() {
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-semibold text-gray-100">{selectedSale.invoice_number}</h2><p className="mt-1 text-xs text-gray-500">{selectedSale.transaction_id} · {selectedSale.transaction_date}</p></div><div className="flex items-center gap-3"><span className="text-xs text-gray-300">{selectedSale.status}</span>{selectedSale.status !== 'CANCELLED' && <button type="button" onClick={() => void editTransaction(selectedSale)} className="text-amber-300 hover:text-amber-200">Edit</button>}<button type="button" onClick={() => setSelectedSale(null)} className="border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800">Back</button></div></div>
             <div className="grid grid-cols-2 gap-3"><Info label="Reference name" value={selectedSale.reference_name} /><Info label="Ticket available" value={selectedSale.ticket_number || (selectedSale.has_ticket_number ? 'Yes' : 'No')} /><Info label="Customer name" value={selectedSale.customer_name} /><Info label="Registration" value={selectedSale.registration || '—'} /><Info label="Remarks" value={selectedSale.remarks || '—'} /></div>
-            <div className="grid grid-cols-2 gap-3"><Info label="Sale price" value={formatPkr(selectedSale.sale_price_paisa)} /><Info label="Commission" value={formatPkr(selectedSale.service_charges_paisa)} />{selectedSale.other_fees_paisa > 0 && <Info label="Historical other fees" value={formatPkr(selectedSale.other_fees_paisa)} />}<Info label="Total payable" value={formatPkr(selectedSale.total_payable_paisa)} /><Info label="Received" value={formatPkr(selectedSale.amount_received_paisa)} /><Info label="Balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} /></div>
+            <div className="grid grid-cols-2 gap-3"><Info label="Sale price before commission" value={formatPkr(selectedSale.sale_price_paisa)} /><Info label="Commission" value={formatPkr(selectedSale.service_charges_paisa)} />{selectedSale.other_fees_paisa > 0 && <Info label="Other fees" value={formatPkr(selectedSale.other_fees_paisa)} />}<Info label="Total payable" value={formatPkr(selectedSale.total_payable_paisa)} /><Info label="Received" value={formatPkr(selectedSale.amount_received_paisa)} /><Info label="Balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} /></div>
             <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Payment history</h3>{selectedSale.payments.length ? <ul className="divide-y divide-gray-800">{selectedSale.payments.map((payment) => <li key={payment.id} className="flex justify-between gap-3 py-2 text-xs"><span className="text-gray-400">{payment.receipt_number} · {payment.method} · {payment.paid_at}</span><span className="text-gray-200">{formatPkr(payment.amount_paisa)}</span></li>)}</ul> : <p className="text-xs text-gray-500">No payments recorded.</p>}</div>
             {selectedSale.status !== 'CANCELLED' && selectedSale.outstanding_balance_paisa > 0 && <form onSubmit={(event) => void recordPayment(event)} className="grid gap-2 border-t border-gray-800 pt-3 sm:grid-cols-[1fr_1fr_auto]"><label><span className={labelClass}>Receive payment (PKR)</span><input className={inputClass} inputMode="decimal" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required /></label><label><span className={labelClass}>Method</span><select className={inputClass} value={laterPaymentMethod} onChange={(event) => setLaterPaymentMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label><button disabled={busy} className="self-end bg-brand-600 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Record payment</button></form>}
             {selectedSale.refunds.length > 0 && <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Refund history</h3><ul className="divide-y divide-gray-800">{selectedSale.refunds.map((refund) => <li key={refund.id} className="flex justify-between gap-3 py-2 text-xs"><span className="text-gray-400">{refund.method} · {refund.created_at} · {refund.reason}</span><span className="text-orange-300">{formatPkr(refund.amount_paisa)}</span></li>)}</ul></div>}
@@ -555,7 +578,7 @@ export default function StampPaperPage() {
         </section>}
       </div>}
 
-      {selectedSale && receiptSettings && <Receipt sale={selectedSale} settings={receiptSettings} />}
+      {receiptSale && receiptSettings && <Receipt sale={receiptSale} settings={receiptSettings} />}
       {preview && <div role="dialog" aria-modal="true" aria-label="Attachment preview" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setPreview(null)}><div className="flex max-h-full max-w-5xl flex-col bg-gray-900 p-3" onClick={(event) => event.stopPropagation()}><div className="mb-2 flex items-center justify-between gap-3"><span className="max-w-[70vw] truncate text-sm text-gray-200">{preview.name}</span><button type="button" onClick={() => setPreview(null)} className="px-2 text-gray-300">Close</button></div>{preview.mimeType.startsWith('image/') ? <img src={preview.url} alt={preview.name} className="max-h-[80vh] max-w-full object-contain" /> : <iframe title={preview.name} src={preview.url} className="h-[80vh] w-[80vw] bg-white" />}</div></div>}
     </div>
   )
@@ -574,5 +597,5 @@ function PaymentOptions() {
 }
 
 function Receipt({ sale, settings }: { sale: SimpleStampSaleDetail; settings: SettingsRow }) {
-  return <article id="stamp-receipt" className="hidden"><h1>{settings.shop_name}</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p><p>Ticket available: {sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</p><p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price: {formatPkr(sale.sale_price_paisa)}</p><p>Commission: {formatPkr(sale.service_charges_paisa)}</p>{sale.other_fees_paisa > 0 && <p>Historical other fees: {formatPkr(sale.other_fees_paisa)}</p>}<p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
+  return <article id="stamp-receipt" className="hidden"><h1>{settings.shop_name}</h1><p>Stamp Paper Receipt</p><hr /><p>Invoice: {sale.invoice_number}</p><p>Transaction: {sale.transaction_id}</p><p>Date: {sale.transaction_date}</p><p>Status: {sale.status}</p><hr /><p>Reference: {sale.reference_name}</p><p>Ticket available: {sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</p><p>Customer: {sale.customer_name}</p>{sale.registration && <p>Registration: {sale.registration}</p>}<hr /><p>Sale price before commission: {formatPkr(sale.sale_price_paisa)}</p><p>Commission: {formatPkr(sale.service_charges_paisa)}</p>{sale.other_fees_paisa > 0 && <p>Other fees: {formatPkr(sale.other_fees_paisa)}</p>}<p>Total: {formatPkr(sale.total_payable_paisa)}</p><p>Received: {formatPkr(sale.amount_received_paisa)}</p><p>Balance: {formatPkr(sale.outstanding_balance_paisa)}</p>{sale.remarks && <><hr /><p>Remarks: {sale.remarks}</p></>}<hr /><p>Thank you</p></article>
 }

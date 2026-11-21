@@ -5,6 +5,7 @@ import type {
 import type { DB } from '../db/db'
 
 type TotalRow = { count: number; gross: number; cash: number; noncash: number; refunds: number; outstanding: number }
+type StampTotals = TotalRow & { salePrice: number; commission: number; otherFees: number }
 type ClosingRow = {
   opening_cash: number; expected_cash: number | null; actual_cash: number | null
   difference: number | null; is_locked: number; closed_at: string | null
@@ -116,6 +117,11 @@ export class DailyClosingRepository {
 
     return {
       fromDate, toDate,
+      stampPaperCalculation: {
+        salePrice: stamp.salePrice,
+        commission: stamp.commission,
+        otherFees: stamp.otherFees
+      },
       closing: closing ? {
         openingCash: closing.opening_cash,
         expectedCash: closing.expected_cash,
@@ -220,20 +226,28 @@ export class DailyClosingRepository {
     if (!result.changes) throw new Error('This date is not locked')
   }
 
-  private stampTotals(fromDate: string, toDate: string): TotalRow {
+  private stampTotals(fromDate: string, toDate: string): StampTotals {
     const legacy = this.db.prepare(`
       SELECT COUNT(*) AS count, COALESCE(SUM(total_payable_paisa), 0) / 100.0 AS gross,
+        COALESCE(SUM(i.sale_price_paisa), 0) / 100.0 AS salePrice,
+        COALESCE(SUM(s.service_charges_paisa), 0) / 100.0 AS commission,
+        COALESCE(SUM(s.other_fees_paisa), 0) / 100.0 AS otherFees,
         COALESCE((SELECT SUM(amount_paisa) / 100.0 FROM stamp_paper_payments
           WHERE date(paid_at) BETWEEN ? AND ? AND method = 'CASH'), 0) AS cash,
         COALESCE((SELECT SUM(amount_paisa) / 100.0 FROM stamp_paper_payments
           WHERE date(paid_at) BETWEEN ? AND ? AND method != 'CASH'), 0) AS noncash,
         COALESCE(SUM(MAX(0, total_payable_paisa -
-          COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_paper_payments p WHERE p.sale_id = stamp_paper_sales.id), 0)
-          + COALESCE((SELECT SUM(r.amount_paisa) FROM stamp_paper_refunds r WHERE r.sale_id = stamp_paper_sales.id), 0))), 0) / 100.0 AS outstanding
-      FROM stamp_paper_sales WHERE date(transaction_date) BETWEEN ? AND ? AND status = 'COMPLETED'
-    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
+          COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_paper_payments p WHERE p.sale_id = s.id), 0)
+          + COALESCE((SELECT SUM(r.amount_paisa) FROM stamp_paper_refunds r WHERE r.sale_id = s.id), 0))), 0) / 100.0 AS outstanding
+      FROM stamp_paper_sales s
+      JOIN stamp_paper_inventory i ON i.id = s.inventory_id
+      WHERE date(s.transaction_date) BETWEEN ? AND ? AND s.status = 'COMPLETED'
+    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as StampTotals
     const simpleSales = this.db.prepare(`
       SELECT COUNT(*) AS count, COALESCE(SUM(total_payable_paisa), 0) / 100.0 AS gross,
+        COALESCE(SUM(sale_price_paisa), 0) / 100.0 AS salePrice,
+        COALESCE(SUM(service_charges_paisa), 0) / 100.0 AS commission,
+        COALESCE(SUM(other_fees_paisa), 0) / 100.0 AS otherFees,
         COALESCE((SELECT SUM(p.amount_paisa) / 100.0 FROM stamp_transaction_payments p
           WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method = 'CASH'), 0) AS cash,
         COALESCE((SELECT SUM(p.amount_paisa) / 100.0 FROM stamp_transaction_payments p
@@ -243,8 +257,7 @@ export class DailyClosingRepository {
       FROM stamp_paper_transactions
       WHERE date(COALESCE(issued_date, created_at)) BETWEEN ? AND ?
         AND status != 'CANCELLED'
-        AND (issue_status = 'ISSUED' OR transaction_id IS NULL)
-    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
+    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as StampTotals
     const legacyRefunds = this.sum(`
       SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_refunds
       WHERE date(created_at) BETWEEN ? AND ? AND method IN ('CASH','BANK','EASYPAISA','JAZZCASH')
@@ -259,7 +272,10 @@ export class DailyClosingRepository {
       cash: legacy.cash + simpleSales.cash,
       noncash: legacy.noncash + simpleSales.noncash,
       refunds: legacyRefunds + simpleRefunds,
-      outstanding: legacy.outstanding + simpleSales.outstanding
+      outstanding: legacy.outstanding + simpleSales.outstanding,
+      salePrice: legacy.salePrice + simpleSales.salePrice,
+      commission: legacy.commission + simpleSales.commission,
+      otherFees: legacy.otherFees + simpleSales.otherFees
     }
   }
 

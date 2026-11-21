@@ -38,7 +38,8 @@ export class UdhaarRepository {
     }
 
     addItems(this.db.prepare(`
-      SELECT 'UDHAAR:' || c.id AS id, 'UDHAAR' AS source, 'Customer Udhaar' AS sourceLabel,
+      SELECT 'UDHAAR:' || c.id AS id, c.id AS paymentTargetId,
+        'UDHAAR' AS source, 'Customer Udhaar' AS sourceLabel,
         c.name AS personName, c.phone, NULL AS identityCnic,
         printf('%d sale credit(s), %d manual charge(s)', 
           (SELECT COUNT(*) FROM udhaar_entries sale_entry WHERE sale_entry.customer_id = c.id
@@ -55,7 +56,8 @@ export class UdhaarRepository {
     `).all())
 
     addItems(this.db.prepare(`
-      SELECT 'ADMISSION:' || ch.id AS id, 'ADMISSION' AS source, 'Admissions' AS sourceLabel,
+      SELECT 'ADMISSION:' || ch.id AS id, a.id AS paymentTargetId,
+        'ADMISSION' AS source, 'Admissions' AS sourceLabel,
         st.full_name AS personName, COALESCE(st.phone, st.father_phone, st.whatsapp) AS phone,
         COALESCE(NULLIF(st.father_cnic, ''), NULLIF(st.b_form_number, '')) AS identityCnic,
         TRIM(cf.class_name || ' ' || cf.academic_year || ' · ' || ch.fee_type ||
@@ -78,7 +80,8 @@ export class UdhaarRepository {
     `).all())
 
     addItems(this.db.prepare(`
-      SELECT 'SCHEME:' || a.id AS id, 'SCHEME' AS source, 'Schemes' AS sourceLabel,
+      SELECT 'SCHEME:' || a.id AS id, a.id AS paymentTargetId,
+        'SCHEME' AS source, 'Schemes' AS sourceLabel,
         a.applicant_name AS personName, a.mobile AS phone, a.cnic AS identityCnic,
         s.name || ' · ' || a.processing_status AS detail, a.application_no AS reference,
         a.application_fee - a.discount_amount AS totalAmount,
@@ -96,7 +99,8 @@ export class UdhaarRepository {
     `).all())
 
     addItems(this.db.prepare(`
-      SELECT 'STAMP_TXN:' || t.id AS id, 'STAMP' AS source, 'Stamp paper' AS sourceLabel,
+      SELECT 'STAMP_TXN:' || t.id AS id, t.id AS paymentTargetId,
+        'STAMP' AS source, 'Stamp paper' AS sourceLabel,
         t.customer_name AS personName, NULL AS phone, NULL AS identityCnic,
         COALESCE(t.reference_name, 'Stamp transaction') AS detail, t.txn_no AS reference,
         ROUND(t.total_payable_paisa / 100.0, 2) AS totalAmount,
@@ -111,7 +115,8 @@ export class UdhaarRepository {
     `).all())
 
     addItems(this.db.prepare(`
-      SELECT 'STAMP_SALE:' || s.id AS id, 'STAMP' AS source, 'Stamp paper' AS sourceLabel,
+      SELECT 'STAMP_SALE:' || s.id AS id, s.id AS paymentTargetId,
+        'STAMP' AS source, 'Stamp paper' AS sourceLabel,
         COALESCE(sp.full_name, fp.full_name) AS personName,
         COALESCE(sp.mobile_number, fp.mobile_number) AS phone,
         COALESCE(sp.cnic_number, fp.cnic_number) AS identityCnic,
@@ -134,7 +139,8 @@ export class UdhaarRepository {
     `).all())
 
     addItems(this.db.prepare(`
-      SELECT 'FILER:' || c.id AS id, 'FILER' AS source, 'Filer customers' AS sourceLabel,
+      SELECT 'FILER:' || c.id AS id, c.id AS paymentTargetId,
+        'FILER' AS source, 'Filer customers' AS sourceLabel,
         c.customer_name AS personName, c.mobile AS phone, c.cnic AS identityCnic,
         c.category AS detail, NULL AS reference, c.total_fee AS totalAmount,
         c.advance_paid AS paidAmount, c.total_fee - c.advance_paid AS balance,

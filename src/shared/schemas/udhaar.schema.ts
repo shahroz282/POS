@@ -75,6 +75,7 @@ export type UdhaarRepaymentResult = {
 
 export type UdhaarOutstandingItem = {
   id: string
+  paymentTargetId: number
   source: 'UDHAAR' | 'ADMISSION' | 'SCHEME' | 'STAMP' | 'FILER'
   sourceLabel: string
   personName: string

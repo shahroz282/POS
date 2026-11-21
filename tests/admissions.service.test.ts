@@ -170,4 +170,19 @@ describe('AdmissionsService', () => {
     expect(detail.charges).toHaveLength(1)
     expect(detail.total_paid).toBe(2000)
   })
+
+  it('allocates a payment from All Outstanding to the selected admission charge', () => {
+    const chargeId = service.getAdmission(admissionId).charges[0].id
+    const payment = service.collectPayment({
+      admissionId, chargeId, idempotencyKey: 'bb55f269-e1ae-4d38-a250-a20db52a0e44',
+      amount: 1000, method: 'CASH', referenceNumber: '', notes: ''
+    }, userId)
+
+    expect(payment.amount).toBe(1000)
+    expect(raw.prepare(`
+      SELECT charge_id, amount FROM admission_payment_allocations
+      WHERE payment_id = (SELECT id FROM payments WHERE idempotency_key = ?)
+    `).get('bb55f269-e1ae-4d38-a250-a20db52a0e44')).toEqual({ charge_id: chargeId, amount: 1000 })
+    expect(service.getAdmission(admissionId).charges[0].balance).toBe(3500)
+  })
 })

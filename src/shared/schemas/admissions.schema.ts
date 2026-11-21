@@ -89,6 +89,7 @@ export type AdmissionDocumentRow = {
 
 export const AdmissionPaymentCreateSchema = z.object({
   admissionId: z.number().int().positive(),
+  chargeId: z.number().int().positive().optional(),
   idempotencyKey: z.string().uuid(),
   amount: z.number().int().positive().max(100_000_000),
   method: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),

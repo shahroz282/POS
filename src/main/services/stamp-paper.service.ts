@@ -31,7 +31,9 @@ export class StampPaperService {
     const user = getCurrentUser()
     if (!user) throw new Error('Not logged in')
     if (!input.registration?.trim()) throw new Error('Enter the registration.')
-    const totalPayablePaisa = input.salePricePaisa + input.serviceChargesPaisa + input.otherFeesPaisa
+    if (input.serviceChargesPaisa > input.salePricePaisa) throw new Error('Commission cannot exceed the sale price')
+    const salePriceBeforeCommissionPaisa = input.salePricePaisa - input.serviceChargesPaisa
+    const totalPayablePaisa = input.salePricePaisa + input.otherFeesPaisa
     if (input.amountReceivedPaisa > totalPayablePaisa) throw new Error('Amount received cannot exceed the total payable')
     if (input.status === 'CANCELLED' && input.amountReceivedPaisa > 0) throw new Error('A cancelled transaction cannot accept payment')
     const existing = this.repository.findSimpleSaleByKey(input.idempotencyKey)
@@ -74,7 +76,7 @@ export class StampPaperService {
           customerName: input.customerName,
           registration: input.registration.trim(),
           status: input.status,
-          salePricePaisa: input.salePricePaisa,
+          salePricePaisa: salePriceBeforeCommissionPaisa,
           serviceChargesPaisa: input.serviceChargesPaisa,
           otherFeesPaisa: input.otherFeesPaisa,
           totalPayablePaisa,
@@ -148,8 +150,14 @@ export class StampPaperService {
       const current = this.repository.getSimpleSale(input.stampId)
       if (!current || current.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
       this.ensureDayOpen(current.transaction_date.slice(0, 10))
-      const totalPayablePaisa = input.salePricePaisa + input.serviceChargesPaisa + current.other_fees_paisa
-      this.repository.updateSimpleSale({ ...input, totalPayablePaisa })
+      if (input.serviceChargesPaisa > input.salePricePaisa) throw new Error('Commission cannot exceed the sale price')
+      const salePriceBeforeCommissionPaisa = input.salePricePaisa - input.serviceChargesPaisa
+      const totalPayablePaisa = input.salePricePaisa + current.other_fees_paisa
+      this.repository.updateSimpleSale({
+        ...input,
+        salePricePaisa: salePriceBeforeCommissionPaisa,
+        totalPayablePaisa
+      })
       this.audit.insert(user.id, 'STAMP_TRANSACTION_UPDATED', 'stamp_paper_transactions', input.stampId,
         `Invoice ${current.invoice_number}; total ${totalPayablePaisa}`)
       return this.repository.getSimpleSale(input.stampId)!

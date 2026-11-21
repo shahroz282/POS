@@ -130,21 +130,21 @@ describe('UdhaarService', () => {
       INSERT INTO admissions (student_id, class_id, admission_date, fee, status, created_by)
       VALUES (?, ?, '2026-09-01', 500, 'ACTIVE', ?)
     `).run(studentId, classId, userId).lastInsertRowid)
-    db.prepare(`
+    const admissionChargeId = Number(db.prepare(`
       INSERT INTO admission_fee_charges (admission_id, fee_type, description, amount, created_by)
       VALUES (?, 'ADMISSION', 'Admission fee', 500, ?)
-    `).run(admissionId, userId)
+    `).run(admissionId, userId).lastInsertRowid)
 
     const schemeId = Number(db.prepare(`
       INSERT INTO schemes (name, category, default_fee, scheme_code)
       VALUES ('Housing Scheme', 'Housing', 800, 'HS01')
     `).run().lastInsertRowid)
-    db.prepare(`
+    const schemeApplicationId = Number(db.prepare(`
       INSERT INTO scheme_applications (
         scheme_id, applicant_name, cnic, mobile, application_date, application_fee,
         created_by, application_no
       ) VALUES (?, 'Shared Customer', ?, ?, '2026-10-01', 800, ?, 'SCH-HS01-2026-0001')
-    `).run(schemeId, sharedCnic, sharedPhone, userId)
+    `).run(schemeId, sharedCnic, sharedPhone, userId).lastInsertRowid)
 
     const stampId = Number(db.prepare(`
       INSERT INTO stamp_paper_transactions (
@@ -157,11 +157,11 @@ describe('UdhaarService', () => {
       VALUES (?, 'STP-TEST-1-R1', 20000, 'CASH', ?)
     `).run(stampId, userId)
 
-    db.prepare(`
+    const filerCustomerId = Number(db.prepare(`
       INSERT INTO filer_customers (
         customer_name, cnic, mobile, filing_date, category, total_fee, advance_paid, created_by
       ) VALUES ('Shared Customer', ?, ?, '2026-11-01', 'ANNUAL_RETURN', 2000, 500, ?)
-    `).run(sharedCnic, sharedPhone, userId)
+    `).run(sharedCnic, sharedPhone, userId).lastInsertRowid)
 
     const groups = service.allOutstanding()
     const sharedGroup = groups.find((group) => group.name === 'Shared Customer')
@@ -174,7 +174,13 @@ describe('UdhaarService', () => {
     ])
     expect(sharedGroup?.items.reduce((sum, item) => sum + item.balance, 0)).toBe(3100)
     expect(sharedGroup?.items.some((item) => 'identityCnic' in item)).toBe(false)
+    expect(sharedGroup?.items.find((item) => item.source === 'UDHAAR')?.paymentTargetId).toBe(creditCustomerId)
+    expect(sharedGroup?.items.find((item) => item.source === 'ADMISSION')?.paymentTargetId).toBe(admissionId)
+    expect(sharedGroup?.items.find((item) => item.source === 'ADMISSION')?.id).toBe(`ADMISSION:${admissionChargeId}`)
+    expect(sharedGroup?.items.find((item) => item.source === 'SCHEME')?.paymentTargetId).toBe(schemeApplicationId)
+    expect(sharedGroup?.items.find((item) => item.source === 'FILER')?.paymentTargetId).toBe(filerCustomerId)
     const stampGroup = groups.find((group) => group.items.some((item) => item.source === 'STAMP'))
     expect(stampGroup?.totalOutstanding).toBe(400)
+    expect(stampGroup?.items.find((item) => item.source === 'STAMP')?.paymentTargetId).toBe(stampId)
   })
 })

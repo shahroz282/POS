@@ -232,22 +232,53 @@ describe('DailyClosingService', () => {
     }, userId)).toThrow('locked')
   })
 
-  it('reports only issued simple stamps on the issued date and leaves pending stamps out', () => {
+  it('reports issued stamps on their issued date and includes unissued active transactions with balances', () => {
     raw.prepare(`
       INSERT INTO stamp_paper_transactions
         (txn_no, bank_employee_name, customer_name, register_no, price, status, created_by, created_at,
-         transaction_id, total_payable_paisa, issue_status, issued_date)
+         transaction_id, sale_price_paisa, service_charges_paisa, other_fees_paisa, total_payable_paisa, issue_status, issued_date)
       VALUES ('ST-ISSUE', 'Bank', 'Issued', 'REG', 100, 'COMPLETED', ?, '2025-01-01 10:00:00',
-        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee401', 10000, 'ISSUED', '2025-01-02'),
-        ('ST-PENDING', 'Bank', 'Pending', 'REG2', 100, 'COMPLETED', ?, '2025-01-02 10:00:00',
-        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee402', 10000, 'PENDING', NULL)
-    `).run(userId, userId)
+        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee401', 9000, 1000, 0, 10000, 'ISSUED', '2025-01-02')
+    `).run(userId)
+    const pendingStampId = Number(raw.prepare(`
+      INSERT INTO stamp_paper_transactions
+        (txn_no, bank_employee_name, customer_name, register_no, price, status, created_by, created_at,
+         transaction_id, sale_price_paisa, service_charges_paisa, other_fees_paisa, total_payable_paisa, issue_status, issued_date)
+      VALUES ('ST-PENDING', 'Bank', 'Pending', 'REG2', 200, 'PENDING', ?, '2025-01-02 10:00:00',
+        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee402', 18000, 2000, 0, 20000, 'PENDING', NULL)
+    `).run(userId).lastInsertRowid)
+    raw.prepare(`
+      INSERT INTO stamp_transaction_payments (stamp_id, receipt_number, amount_paisa, method, created_by, paid_at)
+      VALUES (?, 'ST-PENDING-REC', 5000, 'CASH', ?, '2025-01-02 10:00:00')
+    `).run(pendingStampId, userId)
+    raw.prepare(`
+      INSERT INTO stamp_paper_transactions
+        (txn_no, bank_employee_name, customer_name, register_no, price, status, created_by, created_at,
+         transaction_id, sale_price_paisa, service_charges_paisa, other_fees_paisa, total_payable_paisa, issue_status, issued_date)
+      VALUES ('ST-CANCELLED', 'Bank', 'Cancelled', 'REG3', 500, 'CANCELLED', ?, '2025-01-02 10:00:00',
+        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee403', 45000, 5000, 0, 50000, 'PENDING', NULL)
+    `).run(userId)
+    const inventoryId = Number(raw.prepare(`
+      INSERT INTO stamp_paper_inventory
+        (item_type, denomination_paisa, serial_number, sale_price_paisa, status, created_by)
+      VALUES ('LEGAL', 3000, 'SERIAL-1', 4000, 'SOLD', ?)
+    `).run(userId).lastInsertRowid)
+    raw.prepare(`
+      INSERT INTO stamp_paper_sales
+        (transaction_id, idempotency_key, invoice_number, transaction_date, inventory_id, document_purpose,
+         service_charges_paisa, other_fees_paisa, total_payable_paisa, created_by)
+      VALUES ('legacy-stamp-1', 'legacy-stamp-key-1', 'LEGACY-ST-1', '2025-01-02 11:00:00', ?, 'Agreement',
+        500, 500, 5000, ?)
+    `).run(inventoryId, userId)
 
     const report = service.report(reportDate)
     expect(report.modules.find(({ key }) => key === 'stampPaper')).toMatchObject({
-      transactionCount: 1,
-      grossAmount: 100
+      transactionCount: 3,
+      grossAmount: 350,
+      cashReceived: 50,
+      outstanding: 300
     })
+    expect(report.stampPaperCalculation).toEqual({ salePrice: 310, commission: 35, otherFees: 5 })
   })
 
   it('suggests the previous day counted cash without saving it as the next opening', () => {

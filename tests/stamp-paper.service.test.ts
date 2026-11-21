@@ -198,16 +198,25 @@ describe('StampPaperService', () => {
     expect(sale.has_ticket_number).toBe(1)
     expect(sale.customer_name).toBe('Test Customer')
     expect(sale.registration).toBe('REG-22')
-    expect(sale.total_payable_paisa).toBe(260_025)
-    expect(sale.outstanding_balance_paisa).toBe(160_025)
+    expect(sale.sale_price_paisa).toBe(240_025)
+    expect(sale.service_charges_paisa).toBe(10_000)
+    expect(sale.total_payable_paisa).toBe(250_025)
+    expect(sale.outstanding_balance_paisa).toBe(150_025)
     expect(simpleService.getSimpleSale(sale.id).documents).toHaveLength(2)
+    expect(() => simpleService.createSimpleSale({
+      ...input,
+      transactionId: 'aa85f269-e1ae-4d38-a250-a20db52a0e44',
+      idempotencyKey: 'bb85f269-e1ae-4d38-a250-a20db52a0e44',
+      serviceChargesPaisa: 260_000,
+      stagedDocumentTokens: []
+    })).toThrow('Commission cannot exceed the sale price')
 
     const retry = simpleService.createSimpleSale(input)
     expect(retry.id).toBe(sale.id)
-    const payment = simpleService.recordSimplePayment({ saleId: sale.id, amountPaisa: 160_025, method: 'BANK' })
+    const payment = simpleService.recordSimplePayment({ saleId: sale.id, amountPaisa: 150_025, method: 'BANK' })
     expect(payment.receiptNumber).toMatch(/^STPR-\d{8}-\d{4}$/)
     const settled = simpleService.getSimpleSale(sale.id)
-    expect(settled.amount_received_paisa).toBe(260_025)
+    expect(settled.amount_received_paisa).toBe(250_025)
     expect(settled.outstanding_balance_paisa).toBe(0)
     expect(settled.payments).toHaveLength(2)
 
@@ -221,7 +230,7 @@ describe('StampPaperService', () => {
     expect(cancelled).toMatchObject({
       status: 'CANCELLED', amount_received_paisa: 0, outstanding_balance_paisa: 0
     })
-    expect(cancelled.refunds).toMatchObject([{ amount_paisa: 260_025, method: 'CASH' }])
+    expect(cancelled.refunds).toMatchObject([{ amount_paisa: 250_025, method: 'CASH' }])
     expect(simpleService.cancelSimpleSale(cancellation, 'ADMIN').refunds).toHaveLength(1)
   })
 
@@ -261,9 +270,11 @@ describe('StampPaperService', () => {
       customer_name: 'Updated customer',
       registration: 'REG-23A',
       status: 'COMPLETED',
-      total_payable_paisa: 295_000,
+      sale_price_paisa: 265_000,
+      service_charges_paisa: 15_000,
+      total_payable_paisa: 280_000,
       amount_received_paisa: 100_000,
-      outstanding_balance_paisa: 195_000,
+      outstanding_balance_paisa: 180_000,
       commission_label: 'Service fee',
       remarks: 'Updated record'
     })
@@ -278,7 +289,7 @@ describe('StampPaperService', () => {
       salePricePaisa: 50_000,
       serviceChargesPaisa: 0
     })).toThrow('Total payable cannot be less than payments already recorded')
-    expect(service.getSimpleSale(sale.id).total_payable_paisa).toBe(295_000)
+    expect(service.getSimpleSale(sale.id).total_payable_paisa).toBe(280_000)
   })
 
   it('allows transactions without a ticket number but requires registration', () => {

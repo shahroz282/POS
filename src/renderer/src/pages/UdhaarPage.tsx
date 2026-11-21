@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type {
-  SettingsRow, UdhaarCustomerRow, UdhaarEntryRow, UdhaarOutstandingGroup, UdhaarRepaymentResult
+  SettingsRow, UdhaarCustomerRow, UdhaarEntryRow, UdhaarOutstandingGroup, UdhaarOutstandingItem,
+  UdhaarRepaymentResult
 } from '@shared/schemas'
 import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
 type FormMode = 'customer' | 'charge' | 'repayment'
 type CustomerForm = { name: string; phone: string; address: string }
 type EntryForm = { amount: string; note: string; entryDate: string; method: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'; referenceNumber: string }
+type OutstandingPaymentForm = {
+  amount: string
+  entryDate: string
+  method: 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
+  referenceNumber: string
+  note: string
+}
 
 const inputClass = 'w-full border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-brand-500 focus:outline-none'
 const labelClass = 'mb-1 block text-xs font-medium text-gray-400'
@@ -61,6 +69,12 @@ export default function UdhaarPage() {
   const [customers, setCustomers] = useState<UdhaarCustomerRow[]>([])
   const [outstandingGroups, setOutstandingGroups] = useState<UdhaarOutstandingGroup[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [outstandingPaymentItem, setOutstandingPaymentItem] = useState<UdhaarOutstandingItem | null>(null)
+  const [outstandingPaymentKey, setOutstandingPaymentKey] = useState(() => crypto.randomUUID())
+  const [outstandingPaymentForm, setOutstandingPaymentForm] = useState<OutstandingPaymentForm>({
+    amount: '', entryDate: today(), method: 'CASH', referenceNumber: '', note: ''
+  })
+  const [outstandingPaymentNotice, setOutstandingPaymentNotice] = useState('')
   const [outstandingSearch, setOutstandingSearch] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [entries, setEntries] = useState<UdhaarEntryRow[]>([])
@@ -121,11 +135,14 @@ export default function UdhaarPage() {
   useEffect(() => {
     if (view !== 'all' || !selectedGroupId) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedGroupId(null)
+      if (event.key === 'Escape' && !busy) {
+        setSelectedGroupId(null)
+        setOutstandingPaymentItem(null)
+      }
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [view, selectedGroupId])
+  }, [view, selectedGroupId, busy])
 
   useEffect(() => {
     if (selectedId !== null) void loadEntries(selectedId)
@@ -162,7 +179,134 @@ export default function UdhaarPage() {
     setError('')
   }
 
-  const closeOutstandingDetails = () => setSelectedGroupId(null)
+  const openOutstandingDetails = (group: UdhaarOutstandingGroup) => {
+    setError('')
+    setNotice('')
+    setOutstandingPaymentItem(null)
+    setOutstandingPaymentNotice('')
+    setSelectedGroupId(group.id)
+  }
+
+  const closeOutstandingDetails = () => {
+    if (busy) return
+    setSelectedGroupId(null)
+    setOutstandingPaymentItem(null)
+    setOutstandingPaymentNotice('')
+  }
+
+  const openOutstandingPayment = (item: UdhaarOutstandingItem) => {
+    setError('')
+    setOutstandingPaymentNotice('')
+    setOutstandingPaymentItem(item)
+    setOutstandingPaymentKey(crypto.randomUUID())
+    setOutstandingPaymentForm({
+      amount: item.balance.toFixed(item.source === 'STAMP' ? 2 : 0),
+      entryDate: today(),
+      method: 'CASH',
+      referenceNumber: '',
+      note: ''
+    })
+  }
+
+  const submitOutstandingPayment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const item = outstandingPaymentItem
+    if (!item || busy) return
+    const amount = Number(outstandingPaymentForm.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > item.balance) {
+      setError("Enter an amount greater than zero and no more than this record's outstanding balance.")
+      return
+    }
+    if (item.source !== 'STAMP' && !Number.isInteger(amount)) {
+      setError('Enter a whole-rupee amount for this record.')
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    setOutstandingPaymentNotice('')
+    try {
+      let receiptNumber: string | undefined
+      if (item.source === 'UDHAAR') {
+        const result = await window.api.udhaarRepaymentCreate({
+          customerId: item.paymentTargetId,
+          idempotencyKey: outstandingPaymentKey,
+          amount,
+          note: outstandingPaymentForm.note,
+          entryDate: outstandingPaymentForm.entryDate,
+          method: outstandingPaymentForm.method,
+          referenceNumber: outstandingPaymentForm.referenceNumber
+        })
+        if (!result.ok) throw new Error(result.error.message)
+        receiptNumber = result.data.receiptNumber
+      } else if (item.source === 'ADMISSION') {
+        const chargeId = Number(item.id.slice('ADMISSION:'.length))
+        if (!Number.isInteger(chargeId) || chargeId <= 0) throw new Error('The selected admission fee record is invalid.')
+        const result = await window.api.admissionsPaymentCreate({
+          admissionId: item.paymentTargetId,
+          chargeId,
+          idempotencyKey: outstandingPaymentKey,
+          amount,
+          method: outstandingPaymentForm.method,
+          referenceNumber: outstandingPaymentForm.referenceNumber,
+          notes: outstandingPaymentForm.note
+        })
+        if (!result.ok) throw new Error(result.error.message)
+        receiptNumber = result.data.receiptNumber
+      } else if (item.source === 'SCHEME') {
+        const result = await window.api.schemesPaymentCreate({
+          applicationId: item.paymentTargetId,
+          idempotencyKey: outstandingPaymentKey,
+          amount,
+          method: outstandingPaymentForm.method,
+          referenceNumber: outstandingPaymentForm.referenceNumber,
+          notes: outstandingPaymentForm.note
+        })
+        if (!result.ok) throw new Error(result.error.message)
+        receiptNumber = result.data.receiptNumber
+      } else if (item.source === 'STAMP') {
+        const input = {
+          saleId: item.paymentTargetId,
+          entryDate: outstandingPaymentForm.entryDate,
+          amountPaisa: Math.round(amount * 100),
+          method: outstandingPaymentForm.method,
+          referenceNumber: outstandingPaymentForm.referenceNumber,
+          remarks: outstandingPaymentForm.note
+        }
+        const result = item.id.startsWith('STAMP_TXN:')
+          ? await window.api.simpleStampPayment(input)
+          : await window.api.stampPaymentCreate(input)
+        if (!result.ok) throw new Error(result.error.message)
+        receiptNumber = result.data.receiptNumber
+      } else {
+        const result = await window.api.filerCustomerPaymentCreate({
+          customerId: item.paymentTargetId,
+          idempotencyKey: outstandingPaymentKey,
+          entryType: 'RECEIVED',
+          amount,
+          method: outstandingPaymentForm.method,
+          paymentDate: outstandingPaymentForm.entryDate,
+          note: outstandingPaymentForm.note
+        })
+        if (!result.ok) throw new Error(result.error.message)
+      }
+
+      setOutstandingPaymentItem(null)
+      setOutstandingPaymentKey(crypto.randomUUID())
+      setOutstandingPaymentNotice(receiptNumber
+        ? `Payment recorded. Receipt ${receiptNumber}.`
+        : 'Payment recorded.')
+      setNotice(receiptNumber
+        ? `Payment recorded. Receipt ${receiptNumber}.`
+        : 'Payment recorded.')
+      await loadOutstanding()
+      if (item.source === 'UDHAAR') await loadCustomers()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The payment could not be recorded.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const openMode = (nextMode: FormMode) => {
     setError('')
@@ -176,15 +320,29 @@ export default function UdhaarPage() {
     await Promise.all([loadCustomers(), loadEntries(customerId), loadOutstanding()])
   }
 
-  const openCustomerLedger = (group: UdhaarOutstandingGroup) => {
+  const openCustomerLedger = (group: UdhaarOutstandingGroup, startRepayment = false) => {
     const accountItem = group.items.find((item) => item.source === 'UDHAAR')
     if (!accountItem) return
+    if (startRepayment && accountItem.balance <= 0) return
     const customerId = Number(accountItem.id.slice('UDHAAR:'.length))
     if (!Number.isInteger(customerId) || customerId <= 0) return
+    setSelectedGroupId(null)
     setView('ledger')
     setSearch('')
     setStatusFilter('')
     setSelectedId(customerId)
+    setEntries([])
+    setLatestReceipt(null)
+    setError('')
+    setNotice('')
+    setMode(startRepayment ? 'repayment' : null)
+    setEntryForm({
+      amount: startRepayment ? String(accountItem.balance) : '',
+      note: '',
+      entryDate: today(),
+      method: 'CASH',
+      referenceNumber: ''
+    })
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -295,7 +453,7 @@ export default function UdhaarPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-xs">
               <thead className="border-b border-gray-800 text-gray-500">
-                <tr>{['Customer', 'Phone', 'Outstanding modules', 'Records', 'Total outstanding', 'Details'].map((head) =>
+                <tr>{['Customer', 'Phone', 'Outstanding modules', 'Records', 'Total outstanding', 'Actions'].map((head) =>
                   <th key={head} className="px-3 py-3 font-medium">{head}</th>
                 )}</tr>
               </thead>
@@ -308,8 +466,12 @@ export default function UdhaarPage() {
                     <td className="px-3 py-3 text-gray-400">{group.items.length}</td>
                     <td className="px-3 py-3 font-semibold text-orange-300">{money(group.totalOutstanding)}</td>
                     <td className="px-3 py-3">
-                      <button type="button" onClick={() => setSelectedGroupId(group.id)}
-                        className="text-brand-300 hover:text-brand-200">View details</button>
+                      <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => openOutstandingDetails(group)}
+                          className="font-medium text-emerald-300 hover:text-emerald-200">Pay</button>
+                        <button type="button" onClick={() => openOutstandingDetails(group)}
+                          className="text-brand-300 hover:text-brand-200">View details</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -387,7 +549,19 @@ export default function UdhaarPage() {
                     <button type="button" disabled={busy} onClick={() => setMode(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                      <label><span className={labelClass}>Amount (PKR) *</span><input required type="number" min="1" max={mode === 'repayment' ? selectedCustomer.balance : 100_000_000} step="1" value={entryForm.amount} onChange={(event) => setEntryForm((current) => ({ ...current, amount: event.target.value }))} className={inputClass} /></label>
+                      <label>
+                        <span className={`${labelClass} flex items-center justify-between gap-2`}>
+                          <span>Amount (PKR) *</span>
+                          {mode === 'repayment' && selectedCustomer.balance > 0 && (
+                            <button type="button" disabled={busy}
+                              onClick={() => setEntryForm((current) => ({ ...current, amount: String(selectedCustomer.balance) }))}
+                              className="font-medium text-brand-300 hover:text-brand-200 disabled:opacity-50">
+                              Use full balance · {money(selectedCustomer.balance)}
+                            </button>
+                          )}
+                        </span>
+                        <input required type="number" min="1" max={mode === 'repayment' ? selectedCustomer.balance : 100_000_000} step="1" value={entryForm.amount} onChange={(event) => setEntryForm((current) => ({ ...current, amount: event.target.value }))} className={inputClass} />
+                      </label>
                       <label><span className={labelClass}>Date *</span><input required type="date" value={entryForm.entryDate} onChange={(event) => setEntryForm((current) => ({ ...current, entryDate: event.target.value }))} className={inputClass} /></label>
                       {mode === 'repayment' && <>
                         <label><span className={labelClass}>Payment method *</span><select value={entryForm.method} onChange={(event) => setEntryForm((current) => ({ ...current, method: event.target.value as EntryForm['method'] }))} className={inputClass}>{methods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label>
@@ -470,10 +644,11 @@ export default function UdhaarPage() {
                 Open customer Udhaar ledger
               </button>
             )}
+            <p className="mb-3 text-xs text-gray-500">Choose Pay beside the specific outstanding record you want to settle.</p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-xs">
                 <thead className="border-b border-gray-800 text-gray-500">
-                  <tr>{['Module', 'Customer / record detail', 'Reference', 'Date / due', 'Total', 'Paid', 'Outstanding'].map((head) =>
+                  <tr>{['Module', 'Customer / record detail', 'Reference', 'Date / due', 'Total', 'Paid', 'Outstanding', 'Action'].map((head) =>
                     <th key={head} className="px-2 py-2 font-medium">{head}</th>
                   )}</tr>
                 </thead>
@@ -490,15 +665,89 @@ export default function UdhaarPage() {
                       <td className="px-2 py-3 text-gray-300">{money(item.totalAmount)}</td>
                       <td className="px-2 py-3 text-gray-300">{money(item.paidAmount)}</td>
                       <td className="px-2 py-3 font-semibold text-orange-300">{money(item.balance)}</td>
+                      <td className="px-2 py-3">
+                        <button type="button" disabled={busy || item.balance <= 0}
+                          onClick={() => openOutstandingPayment(item)}
+                          className="font-medium text-emerald-300 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">
+                          Pay
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="border-t border-gray-700">
-                  <tr><td colSpan={6} className="px-2 py-3 text-right font-semibold text-gray-200">Combined outstanding</td>
+                  <tr><td colSpan={7} className="px-2 py-3 text-right font-semibold text-gray-200">Combined outstanding</td>
                     <td className="px-2 py-3 font-semibold text-orange-300">{money(selectedGroup.totalOutstanding)}</td></tr>
                 </tfoot>
               </table>
             </div>
+            {error && <div role="alert" className="mt-4 border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
+            {outstandingPaymentNotice && <div role="status" className="mt-4 border border-green-800 bg-green-950/30 px-4 py-3 text-sm text-green-300">{outstandingPaymentNotice}</div>}
+            {outstandingPaymentItem && (
+              <form onSubmit={(event) => void submitOutstandingPayment(event)}
+                className="mt-5 border border-gray-700 bg-gray-950/70 p-4">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-100">Pay {outstandingPaymentItem.sourceLabel}</h3>
+                    <p className="mt-1 text-xs text-gray-500">{outstandingPaymentItem.detail} · Remaining {money(outstandingPaymentItem.balance)}</p>
+                    {outstandingPaymentItem.source === 'ADMISSION' && (
+                      <p className="mt-1 text-xs text-gray-500">This payment will be allocated to the selected admission fee record.</p>
+                    )}
+                  </div>
+                  <button type="button" disabled={busy} onClick={() => setOutstandingPaymentItem(null)}
+                    className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <label>
+                    <span className={labelClass}>Amount (PKR) *</span>
+                    <input required type="number"
+                      min={outstandingPaymentItem.source === 'STAMP' ? '0.01' : '1'}
+                      max={outstandingPaymentItem.balance}
+                      step={outstandingPaymentItem.source === 'STAMP' ? '0.01' : '1'}
+                      value={outstandingPaymentForm.amount}
+                      onChange={(event) => setOutstandingPaymentForm((current) => ({ ...current, amount: event.target.value }))}
+                      className={inputClass} />
+                  </label>
+                  <label>
+                    <span className={labelClass}>Payment method *</span>
+                    <select value={outstandingPaymentForm.method}
+                      onChange={(event) => setOutstandingPaymentForm((current) => ({
+                        ...current, method: event.target.value as OutstandingPaymentForm['method']
+                      }))} className={inputClass}>
+                      {methods.map((method) => <option key={method} value={method}>{method}</option>)}
+                    </select>
+                  </label>
+                  {['UDHAAR', 'STAMP', 'FILER'].includes(outstandingPaymentItem.source) && (
+                    <label>
+                      <span className={labelClass}>Payment date *</span>
+                      <input required type="date" value={outstandingPaymentForm.entryDate}
+                        onChange={(event) => setOutstandingPaymentForm((current) => ({ ...current, entryDate: event.target.value }))}
+                        className={inputClass} />
+                    </label>
+                  )}
+                  {outstandingPaymentItem.source !== 'FILER' && (
+                    <label>
+                      <span className={labelClass}>Reference number</span>
+                      <input maxLength={100} value={outstandingPaymentForm.referenceNumber}
+                        onChange={(event) => setOutstandingPaymentForm((current) => ({ ...current, referenceNumber: event.target.value }))}
+                        className={inputClass} />
+                    </label>
+                  )}
+                  <label className="sm:col-span-2 lg:col-span-3">
+                    <span className={labelClass}>Note</span>
+                    <input maxLength={500} value={outstandingPaymentForm.note}
+                      onChange={(event) => setOutstandingPaymentForm((current) => ({ ...current, note: event.target.value }))}
+                      className={inputClass} />
+                  </label>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button type="submit" disabled={busy}
+                    className="bg-brand-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                    {busy ? 'Saving…' : 'Record payment'}
+                  </button>
+                </div>
+              </form>
+            )}
           </section>
         </div>
       )}

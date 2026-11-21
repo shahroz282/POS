@@ -94,6 +94,11 @@ export type DashboardDailySummary = {
 export type DailyClosingReport = {
   fromDate: string
   toDate: string
+  stampPaperCalculation: {
+    salePrice: number
+    commission: number
+    otherFees: number
+  }
   closing: {
     openingCash: number
     expectedCash: number | null

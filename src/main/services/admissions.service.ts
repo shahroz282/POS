@@ -103,6 +103,10 @@ export class AdmissionsService {
         if (existing.admission_id !== input.admissionId || existing.amount !== input.amount || existing.method !== input.method) {
           throw new Error('Payment key was already used for a different transaction')
         }
+        if (input.chargeId !== undefined &&
+          this.repository.paymentAllocation(existing.id, input.chargeId) !== input.amount) {
+          throw new Error('Payment key was already used for a different transaction')
+        }
         return {
           receiptNumber: existing.receipt_no,
           amount: existing.amount,
@@ -116,7 +120,16 @@ export class AdmissionsService {
       this.ensureDayOpen(this.localDate())
       const currentBalance = this.repository.admissionBalance(input.admissionId)
       if (currentBalance <= 0) throw new Error('There is no outstanding admission fee balance')
-      if (input.amount > currentBalance) throw new Error('Payment cannot exceed the outstanding admission fee')
+      const chargeBalance = input.chargeId === undefined
+        ? undefined : this.repository.chargeBalance(input.admissionId, input.chargeId)
+      if (input.chargeId !== undefined && chargeBalance === undefined) {
+        throw new Error('Selected admission fee charge was not found')
+      }
+      if (input.amount > (chargeBalance ?? currentBalance)) {
+        throw new Error(input.chargeId === undefined
+          ? 'Payment cannot exceed the outstanding admission fee'
+          : 'Payment cannot exceed the outstanding balance of the selected admission fee')
+      }
 
       const now = new Date()
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
@@ -127,7 +140,7 @@ export class AdmissionsService {
         amount: input.amount, method: input.method, referenceNumber: input.referenceNumber,
         notes: input.notes, balanceAfter, createdBy: userId
       })
-      this.repository.allocatePayment(paymentId, input.amount, input.admissionId)
+      this.repository.allocatePayment(paymentId, input.amount, input.admissionId, input.chargeId)
       const savedPayment = this.repository.paymentByKey(input.idempotencyKey)
       if (!savedPayment) throw new Error('Payment could not be verified after saving')
       this.audit.insert(userId, 'ADMISSION_PAYMENT_RECEIVED', 'payments', paymentId,

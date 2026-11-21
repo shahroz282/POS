@@ -213,7 +213,33 @@ export class AdmissionsRepository {
     return Number(result.lastInsertRowid)
   }
 
-  allocatePayment(paymentId: number, amount: number, admissionId: number): void {
+  chargeBalance(admissionId: number, chargeId: number): number | undefined {
+    const row = this.db.prepare(`
+      SELECT c.amount - c.discount_amount - COALESCE(SUM(pa.amount), 0) AS balance
+      FROM admission_fee_charges c
+      LEFT JOIN admission_payment_allocations pa ON pa.charge_id = c.id
+      WHERE c.admission_id = ? AND c.id = ?
+      GROUP BY c.id
+    `).get(admissionId, chargeId) as { balance: number } | undefined
+    return row?.balance
+  }
+
+  paymentAllocation(paymentId: number, chargeId: number): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS amount
+      FROM admission_payment_allocations WHERE payment_id = ? AND charge_id = ?
+    `).get(paymentId, chargeId) as { amount: number }
+    return row.amount
+  }
+
+  allocatePayment(paymentId: number, amount: number, admissionId: number, chargeId?: number): void {
+    if (chargeId !== undefined) {
+      this.db.prepare(
+        'INSERT INTO admission_payment_allocations (payment_id, charge_id, amount) VALUES (?, ?, ?)'
+      ).run(paymentId, chargeId, amount)
+      return
+    }
+
     const dueCharges = this.db.prepare(`
       SELECT c.id, c.amount - c.discount_amount - COALESCE(SUM(pa.amount), 0) AS balance
       FROM admission_fee_charges c

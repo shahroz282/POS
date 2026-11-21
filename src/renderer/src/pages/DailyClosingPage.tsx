@@ -16,7 +16,11 @@ function money(amount: number): string {
   }).format(amount)
 }
 
-function ModuleCard({ module, onClick }: { module: DailyClosingModule; onClick: () => void }) {
+function ModuleCard({ module, onClick, stampPaperCalculation }: {
+  module: DailyClosingModule
+  onClick: () => void
+  stampPaperCalculation?: DailyClosingReport['stampPaperCalculation']
+}) {
   return (
     <button type="button" onClick={onClick}
       className="h-full w-full border border-gray-800 bg-gray-900/60 p-5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-brand-500 hover:bg-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 motion-reduce:transition-none">
@@ -32,6 +36,13 @@ function ModuleCard({ module, onClick }: { module: DailyClosingModule; onClick: 
         <CardMetric label="Refunds" value={money(module.refunds)} />
         <CardMetric label="Outstanding" value={money(module.outstanding)} />
       </div>
+      {module.key === 'stampPaper' && stampPaperCalculation && (
+        <p className="mt-4 border-t border-gray-800 pt-3 text-xs leading-5 text-gray-400">
+          Sale price before commission {money(stampPaperCalculation.salePrice)} + Commission {money(stampPaperCalculation.commission)}
+          {stampPaperCalculation.otherFees > 0 && <> + Other fees {money(stampPaperCalculation.otherFees)}</>}
+          {' = '}{money(module.grossAmount)}
+        </p>
+      )}
       <div className="mt-5 text-xs font-medium text-brand-300">View breakdown →</div>
     </button>
   )
@@ -244,7 +255,8 @@ export default function DailyClosingPage() {
             )}
             <div className="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {report.modules.map((module) => (
-                <ModuleCard key={module.key} module={module} onClick={() => setSelectedModule(module)} />
+                <ModuleCard key={module.key} module={module} onClick={() => setSelectedModule(module)}
+                  stampPaperCalculation={module.key === 'stampPaper' ? report.stampPaperCalculation : undefined} />
               ))}
             </div>
             <p className="mt-3 text-xs text-gray-500">
@@ -281,6 +293,18 @@ export default function DailyClosingPage() {
               <Metric label="Refunds" value={money(selectedModule.refunds)} />
               <Metric label="Outstanding" value={money(selectedModule.outstanding)} />
             </div>
+            {selectedModule.key === 'stampPaper' && (
+              <section className="mt-4 border-t border-gray-800 pt-4">
+                <h3 className="mb-3 text-sm font-semibold text-gray-200">Stamp Paper billed amount</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Metric label="Sale price before commission" value={money(report?.stampPaperCalculation.salePrice ?? 0)} />
+                  <Metric label="Commission" value={money(report?.stampPaperCalculation.commission ?? 0)} />
+                  <Metric label="Other fees" value={money(report?.stampPaperCalculation.otherFees ?? 0)} />
+                  <Metric label="Total billed" value={money(selectedModule.grossAmount)} />
+                </div>
+                <p className="mt-3 text-xs text-gray-500">Sale price before commission + commission + other fees = total billed.</p>
+              </section>
+            )}
             {selectedModule.key === 'udhaar' && <p className="mt-4 text-xs text-gray-500">Cash repayments are included in the cash reconciliation and excluded from module cash receipts to avoid double-counting.</p>}
           </section>
         </div>

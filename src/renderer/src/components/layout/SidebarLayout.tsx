@@ -43,9 +43,9 @@ export default function SidebarLayout({ currentPage, onNavigate, user, allowedPa
   const pastDate = selectedDate !== todayDate()
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen min-h-0 overflow-hidden">
       {/* ── Sidebar ── */}
-      <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
+      <aside className="w-56 min-h-0 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
         {/* Logo / app name */}
         <div className="px-4 py-5 border-b border-gray-800">
           <h1 className="text-brand-400 font-bold text-lg leading-tight">Saqib</h1>
@@ -53,7 +53,7 @@ export default function SidebarLayout({ currentPage, onNavigate, user, allowedPa
         </div>
 
         {/* Nav links */}
-        <nav className="flex-1 overflow-y-auto py-2">
+        <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-2">
           {visibleItems.map((item) => {
             const active = currentPage === item.id
             return (
@@ -96,7 +96,7 @@ export default function SidebarLayout({ currentPage, onNavigate, user, allowedPa
       </aside>
 
       {/* ── Main content ── */}
-      <main className="flex-1 overflow-y-auto bg-gray-950">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-gray-950">
         <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 ${pastDate ? 'border-red-900 bg-red-950/30' : 'border-gray-800 bg-gray-900/40'}`}>
           <div className="text-xs">
             <span className="font-semibold text-gray-400">Master Date:</span>{' '}
