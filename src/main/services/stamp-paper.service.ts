@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import type { DB } from '../db/db'
-import type { SimpleStampRefundCreate, SimpleStampSaleCreate, SimpleStampSaleRow, StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
+import type { SimpleStampRefundCreate, SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleUpdate, StampDocumentRow, StampInventoryCreate, StampPaperSaleCreate } from '@shared/schemas'
 import { AuditLogRepository } from '../repositories/audit-log.repository'
 import { StampPaperRepository, type StampPartyRow } from '../repositories/stamp-paper.repository'
 import { getCurrentUser } from './session'
@@ -53,7 +53,7 @@ export class StampPaperService {
         const duplicate = this.repository.findSimpleSaleByKey(input.idempotencyKey)
         if (duplicate) return duplicate
 
-        this.ensureDayOpen(this.localDate())
+        this.ensureDayOpen(input.entryDate || this.localDate())
         const now = new Date()
         const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
         const invoiceNumber = `STP-${day}-${String(this.repository.nextNumber('STP', day)).padStart(4, '0')}`
@@ -62,6 +62,14 @@ export class StampPaperService {
           idempotencyKey: input.idempotencyKey,
           invoiceNumber,
           referenceName: input.referenceName,
+          entryDate: input.entryDate,
+          department: input.department,
+          quantity100: input.quantity100,
+          quantity200: input.quantity200,
+          quantity300: input.quantity300,
+          issueStatus: input.issueStatus,
+          commissionPaisa: input.commissionPaisa,
+          commissionLabel: input.commissionLabel,
           hasTicketNumber: input.hasTicketNumber,
           customerName: input.customerName,
           registration: input.registration.trim(),
@@ -120,20 +128,42 @@ export class StampPaperService {
     return this.repository.listSimpleSalesForExport(query, fromDate, toDate)
   }
 
+  markSimpleSaleIssued(stampId: number): void {
+    this.db.transaction(() => {
+      this.ensureDayOpen(this.localDate())
+      this.repository.markSimpleSaleIssued(stampId, this.localDate())
+    })()
+  }
+
   getSimpleSale(stampId: number) {
     const sale = this.repository.getSimpleSale(stampId)
     if (!sale) throw new Error('Stamp paper transaction not found')
     return sale
   }
 
-  recordSimplePayment(input: { saleId: number; amountPaisa: number; method: string; referenceNumber?: string; remarks?: string }) {
+  updateSimpleSale(input: SimpleStampSaleUpdate) {
+    const user = getCurrentUser()
+    if (!user) throw new Error('Not logged in')
+    return this.db.transaction(() => {
+      const current = this.repository.getSimpleSale(input.stampId)
+      if (!current || current.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
+      this.ensureDayOpen(current.transaction_date.slice(0, 10))
+      const totalPayablePaisa = input.salePricePaisa + input.serviceChargesPaisa + current.other_fees_paisa
+      this.repository.updateSimpleSale({ ...input, totalPayablePaisa })
+      this.audit.insert(user.id, 'STAMP_TRANSACTION_UPDATED', 'stamp_paper_transactions', input.stampId,
+        `Invoice ${current.invoice_number}; total ${totalPayablePaisa}`)
+      return this.repository.getSimpleSale(input.stampId)!
+    })()
+  }
+
+  recordSimplePayment(input: { saleId: number; amountPaisa: number; method: string; referenceNumber?: string; remarks?: string; entryDate?: string }) {
     const user = getCurrentUser()
     if (!user) throw new Error('Not logged in')
     return this.db.transaction(() => {
       const sale = this.repository.getSimpleSale(input.saleId)
       if (!sale || sale.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
       if (input.amountPaisa > sale.outstanding_balance_paisa) throw new Error('Payment cannot exceed the outstanding balance')
-      this.ensureDayOpen(this.localDate())
+      this.ensureDayOpen(input.entryDate || this.localDate())
       const now = new Date()
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const receiptNumber = `STPR-${day}-${String(this.repository.nextNumber('STPR', day)).padStart(4, '0')}`
@@ -144,7 +174,8 @@ export class StampPaperService {
         method: input.method,
         referenceNumber: input.referenceNumber,
         remarks: input.remarks,
-        createdBy: user.id
+        createdBy: user.id,
+        entryDate: input.entryDate
       })
       this.audit.insert(user.id, 'STAMP_PAYMENT_RECEIVED', 'stamp_paper_transactions', input.saleId, `Receipt ${receiptNumber}`)
       return { receiptNumber }
@@ -438,7 +469,7 @@ export class StampPaperService {
     }
   }
 
-  recordPayment(input: { saleId: number; amountPaisa: number; method: string; referenceNumber?: string; remarks?: string }) {
+  recordPayment(input: { saleId: number; amountPaisa: number; method: string; referenceNumber?: string; remarks?: string; entryDate?: string }) {
     const user = getCurrentUser()
     if (!user) throw new Error('Not logged in')
     return this.db.transaction(() => {
@@ -448,7 +479,7 @@ export class StampPaperService {
       if (input.amountPaisa > sale.total_payable_paisa - row.received) {
         throw new Error('Payment cannot exceed the outstanding balance')
       }
-      this.ensureDayOpen(this.localDate())
+      this.ensureDayOpen(input.entryDate || this.localDate())
       const now = new Date()
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const receiptNumber = `STPR-${day}-${String(this.repository.nextNumber('STPR', day)).padStart(4, '0')}`
@@ -459,7 +490,8 @@ export class StampPaperService {
         method: input.method,
         reference: input.referenceNumber,
         remarks: input.remarks,
-        createdBy: user.id
+        createdBy: user.id,
+        entryDate: input.entryDate
       })
       this.audit.insert(user.id, 'STAMP_PAYMENT_RECEIVED', 'stamp_paper_sales', input.saleId, `Receipt ${receiptNumber}; amount ${input.amountPaisa} paisa`)
       return { receiptNumber }

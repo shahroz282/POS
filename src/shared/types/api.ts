@@ -4,7 +4,7 @@ import type {
   CreateUserInput, UpdateUserRoleInput, DeactivateUserInput, ResetPasswordInput, UserRow,
   UpdateSettingsInput, SettingsRow, StampInventoryCreate, StampInventoryRow, StampPaperSaleCreate,
   StampPaymentCreate, StampSaleListRow, StampSaleDetail, StampDocumentRow, StampPartySummary,
-  SimpleStampSaleCreate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow, SimpleStampRefundCreate
+  SimpleStampSaleCreate, SimpleStampSaleUpdate, SimpleStampSaleRow, SimpleStampSaleDetail, SimpleStampDocumentRow, SimpleStampRefundCreate
 } from '../schemas'
 import type {
   AdmissionClassCreate, AdmissionDetail, AdmissionPaymentCreate, AdmissionPaymentResult,
@@ -29,7 +29,7 @@ import type {
   InventoryAdjustmentCreate, InventoryMovementRow,
   InventoryProductCreate, InventoryProductRow, InventoryProductUpdate, InventoryPurchaseCreate,
   InventoryPurchaseRow, InventorySummary, InventorySupplierCreate, InventorySupplierRow,
-  SaleCreate, SaleDetail, SaleReturnCreate, SaleReturnResult, SaleRow
+  SaleCreate, SaleDelete, SaleDetail, SaleReturnCreate, SaleReturnResult, SaleRow
 } from '../schemas'
 import type {
   CashEntryCreate, DailyClosingClose, DailyClosingExpenseCreate, DailyClosingExpenseRow,
@@ -84,11 +84,13 @@ export interface WindowApi {
 
   // ── Simple stamp transactions ──────────────────────────────────────────
   simpleStampCreate: (input: SimpleStampSaleCreate) => Promise<IpcResult<SimpleStampSaleRow>>
+  simpleStampUpdate: (input: SimpleStampSaleUpdate) => Promise<IpcResult<SimpleStampSaleDetail>>
   simpleStampList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SimpleStampSaleRow[]>>
   simpleStampListForExport: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SimpleStampSaleRow[]>>
   simpleStampDetail: (stampId: number) => Promise<IpcResult<SimpleStampSaleDetail>>
   simpleStampPayment: (input: StampPaymentCreate) => Promise<IpcResult<{ receiptNumber: string }>>
   simpleStampCancel: (input: SimpleStampRefundCreate) => Promise<IpcResult<SimpleStampSaleDetail>>
+  simpleStampMarkIssued: (stampId: number) => Promise<IpcResult<null>>
   simpleStampExportExcel: (content: Uint8Array) => Promise<IpcResult<{ saved: boolean }>>
   simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => Promise<IpcResult<{ token: string; originalFilename: string; mimeType: string; fileSize: number }>>
   simpleStampDocumentDiscard: (token: string) => Promise<IpcResult<null>>
@@ -194,6 +196,8 @@ export interface WindowApi {
   salesList: (query?: string, fromDate?: string, toDate?: string) => Promise<IpcResult<SaleRow[]>>
   salesDetail: (id: number) => Promise<IpcResult<SaleDetail>>
   salesReturn: (input: SaleReturnCreate) => Promise<IpcResult<SaleReturnResult>>
+  salesMarkWorkCompleted: (saleId: number) => Promise<IpcResult<null>>
+  salesDelete: (input: SaleDelete) => Promise<IpcResult<null>>
   dailyClosingExpenses: () => Promise<IpcResult<DailyClosingExpenseRow[]>>
   dailyClosingReport: (range: DailyClosingRange) => Promise<IpcResult<DailyClosingReport>>
   dailyClosingSave: (input: DailyClosingSave) => Promise<IpcResult<null>>

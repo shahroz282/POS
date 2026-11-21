@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Role } from '@shared/constants'
 import type { SettingsRow, SimpleStampSaleDetail, SimpleStampSaleRow, StampDocumentRow } from '@shared/schemas'
 import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
+import { getSelectedDate } from '../utils/selected-date'
 
 type PaymentMethod = 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH'
 type TransactionStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED'
@@ -40,16 +41,19 @@ export default function StampPaperPage() {
   const [operator, setOperator] = useState('')
   const [receiptSettings, setReceiptSettings] = useState<SettingsRow | null>(null)
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new')
+  const [entryDate, setEntryDate] = useState(getSelectedDate)
   const [transactionId, setTransactionId] = useState(() => crypto.randomUUID())
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
   const [referenceName, setReferenceName] = useState('')
+  const [department, setDepartment] = useState('')
+  const [commissionLabel, setCommissionLabel] = useState('')
   const [hasTicketNumber, setHasTicketNumber] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [registration, setRegistration] = useState('')
   const [status, setStatus] = useState<TransactionStatus>('PENDING')
-  const [salePrice, setSalePrice] = useState('0.00')
-  const [serviceCharges, setServiceCharges] = useState('0.00')
-  const [amountReceived, setAmountReceived] = useState('0.00')
+  const [salePrice, setSalePrice] = useState('')
+  const [serviceCharges, setServiceCharges] = useState('')
+  const [amountReceived, setAmountReceived] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [paymentReference, setPaymentReference] = useState('')
   const [paymentRemarks, setPaymentRemarks] = useState('')
@@ -62,6 +66,7 @@ export default function StampPaperPage() {
   const [appliedFilters, setAppliedFilters] = useState<{ query: string; fromDate?: string; toDate?: string }>({ query: '' })
   const [exporting, setExporting] = useState(false)
   const [selectedSale, setSelectedSale] = useState<SimpleStampSaleDetail | null>(null)
+  const [editingSaleId, setEditingSaleId] = useState<number | null>(null)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [laterPaymentMethod, setLaterPaymentMethod] = useState<PaymentMethod>('CASH')
   const [refundMethod, setRefundMethod] = useState<PaymentMethod>('CASH')
@@ -171,26 +176,66 @@ export default function StampPaperPage() {
     }
     const sale = parsePaisa(salePrice)
     const charges = parsePaisa(serviceCharges)
-    const received = parsePaisa(amountReceived)
+    const received = editingSaleId ? 0 : amountReceived.trim() ? parsePaisa(amountReceived) : 0
     if (sale === null || charges === null || received === null) {
       setError('Enter valid amounts with no more than two decimal places.')
       return
     }
-    if (received > sale + charges) {
+    if (!editingSaleId && received > sale + charges) {
       setError('Amount received cannot exceed total payable.')
       return
     }
-    if (status === 'CANCELLED' && received > 0) {
+    if (!editingSaleId && status === 'CANCELLED' && received > 0) {
       setError('Cancelled transactions cannot receive payment. Record it as Pending or Completed instead.')
       return
     }
+    if (!editingSaleId && !department.trim()) {
+      setError('Enter the Department.')
+      return
+    }
+    if (!editingSaleId && sale + charges === 65000 && !hasTicketNumber) {
+      setError('Ticket selection is required for a Rs.650 entry.')
+      return
+    }
+    const commissionPaisa = parsePaisa(serviceCharges) ?? 0
+    const commissionText = commissionLabel.trim()
 
     setBusy(true)
     try {
+      if (editingSaleId) {
+        const result = await window.api.simpleStampUpdate({
+          stampId: editingSaleId,
+          referenceName,
+          department,
+          hasTicketNumber,
+          customerName,
+          registration,
+          status: status === 'CANCELLED' ? 'PENDING' : status,
+          salePricePaisa: sale,
+          serviceChargesPaisa: charges,
+          commissionLabel: commissionText,
+          remarks
+        })
+        if (!result.ok) throw new Error(result.error.message)
+        setSelectedSale(result.data)
+        setEditingSaleId(null)
+        setNotice(`Transaction ${result.data.invoice_number} updated.`)
+        await loadSales()
+        setActiveTab('history')
+        return
+      }
+
       const result = await window.api.simpleStampCreate({
         transactionId,
         idempotencyKey,
+        entryDate,
         referenceName,
+        department,
+        quantity100: 0,
+        quantity200: 0,
+        quantity300: 0,
+        commissionPaisa,
+        commissionLabel: commissionText,
         hasTicketNumber,
         customerName,
         registration,
@@ -214,14 +259,16 @@ export default function StampPaperPage() {
       setTransactionId(crypto.randomUUID())
       setIdempotencyKey(crypto.randomUUID())
       setReferenceName('')
+      setDepartment('')
+      setCommissionLabel('')
       setHasTicketNumber(false)
       setRequiredFieldErrors({})
       setCustomerName('')
       setRegistration('')
       setStatus('PENDING')
-      setSalePrice('0.00')
-      setServiceCharges('0.00')
-      setAmountReceived('0.00')
+      setSalePrice('')
+      setServiceCharges('')
+      setAmountReceived('')
       setPaymentReference('')
       setPaymentRemarks('')
       setRemarks('')
@@ -236,10 +283,34 @@ export default function StampPaperPage() {
 
   const openTransaction = async (sale: SimpleStampSaleRow) => {
     setError('')
+    setEditingSaleId(null)
     const result = await window.api.simpleStampDetail(sale.id)
     if (!result.ok) return setError(result.error.message)
     setSelectedSale(result.data)
     setPaymentAmount((result.data.outstanding_balance_paisa / 100).toFixed(2))
+  }
+
+  const editTransaction = async (sale: SimpleStampSaleRow) => {
+    if (sale.status === 'CANCELLED') return
+    setError('')
+    setNotice('')
+    const result = await window.api.simpleStampDetail(sale.id)
+    if (!result.ok) return setError(result.error.message)
+    const detail = result.data
+    setSelectedSale(detail)
+    setEditingSaleId(detail.id)
+    setReferenceName(detail.reference_name)
+    setDepartment(detail.department || '')
+    setHasTicketNumber(Boolean(detail.has_ticket_number))
+    setCustomerName(detail.customer_name)
+    setRegistration(detail.registration)
+    setStatus(detail.status)
+    setSalePrice((detail.sale_price_paisa / 100).toFixed(2))
+    setServiceCharges((detail.service_charges_paisa / 100).toFixed(2))
+    setAmountReceived((detail.amount_received_paisa / 100).toFixed(2))
+    setCommissionLabel(detail.commission_label || '')
+    setRemarks(detail.remarks || '')
+    setActiveTab('new')
   }
 
   const recordPayment = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -341,15 +412,15 @@ export default function StampPaperPage() {
     }
   }
 
-  const amountField = (label: string, value: string, onChange: (value: string) => void) => (
-    <label><span className={labelClass}>{label} (PKR)</span><input className={inputClass} inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} required placeholder="0.00" /></label>
+  const amountField = (label: string, value: string, onChange: (value: string) => void, required = true) => (
+    <label><span className={labelClass}>{label} (PKR)</span><input className={inputClass} inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} required={required} placeholder="0.00" /></label>
   )
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6">
       <style>{`@media print { body * { visibility: hidden !important; } #stamp-receipt, #stamp-receipt * { visibility: visible !important; } #stamp-receipt { display: block !important; position: absolute; inset: 0; width: ${receiptSettings ? receiptWidthMm(receiptSettings) : 80}mm; padding: 6mm; color: #000; background: #fff; font: 12px Arial, sans-serif; } }`}</style>
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-gray-800 pb-4">
-        <div><p className="text-xs font-semibold uppercase text-brand-400">Module 4</p><h1 className="mt-1 text-xl font-semibold text-gray-100">Stamp Paper</h1><p className="mt-1 text-sm text-gray-500">Transactions, attachments and payment history.</p></div>
+        <div><p className="text-xs font-semibold uppercase text-brand-400">Module 4</p><h1 className="mt-1 text-xl font-semibold text-gray-100">Stamp Ledger</h1><p className="mt-1 text-sm text-gray-500">Stamp transactions, issue status, attachments and payment history.</p></div>
         <div className="text-right text-xs text-gray-500">Operator: <span className="text-gray-300">{operator || 'Loading…'}</span></div>
       </header>
 
@@ -362,15 +433,19 @@ export default function StampPaperPage() {
 
       {activeTab === 'new' && <form onSubmit={(event) => void saveTransaction(event)} className="space-y-5">
         <section className={sectionClass}>
-          <h2 className="mb-4 text-sm font-semibold text-gray-100">Transaction Information</h2>
+          <h2 className="mb-4 text-sm font-semibold text-gray-100">{editingSaleId ? 'Edit Transaction' : 'Transaction Information'}</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Info label="Transaction ID" value={transactionId} />
-            <Info label="Invoice Number" value="Assigned when saved" />
-            <Info label="Date and time" value={new Date().toLocaleString('en-PK')} />
-            <label><span className={labelClass}>Status</span><select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value as TransactionStatus)}><option value="PENDING">Pending</option><option value="COMPLETED">Complete</option><option value="CANCELLED">Cancel</option></select></label>
+            <Info label="Transaction ID" value={selectedSale && editingSaleId ? selectedSale.transaction_id : transactionId} />
+            <Info label="Invoice Number" value={selectedSale && editingSaleId ? selectedSale.invoice_number : 'Assigned when saved'} />
+            <Info label="Date and time" value={selectedSale && editingSaleId ? selectedSale.transaction_date : new Date().toLocaleString('en-PK')} />
+            {selectedSale && editingSaleId
+              ? <Info label="Entry date" value={selectedSale.transaction_date.slice(0, 10)} />
+              : <label><span className={labelClass}>Entry date</span><input type="date" className={inputClass} value={entryDate} onChange={(event) => setEntryDate(event.target.value)} /></label>}
+            <label><span className={labelClass}>Status</span><select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value as TransactionStatus)}><option value="PENDING">Pending</option><option value="COMPLETED">Complete</option>{!editingSaleId && <option value="CANCELLED">Cancel</option>}</select></label>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <TextField label="Reference name" value={referenceName} onChange={setReferenceName} required maxLength={150} />
+            <TextField label="Department" value={department} onChange={setDepartment} maxLength={150} />
             <div>
               <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-gray-400">
                 <input
@@ -385,6 +460,9 @@ export default function StampPaperPage() {
             <TextField label="Customer name" value={customerName} onChange={setCustomerName} required maxLength={150} />
             <TextField label="Registration" value={registration} onChange={(value) => { setRegistration(value); setRequiredFieldErrors((current) => ({ ...current, registration: undefined })) }} required error={requiredFieldErrors.registration} maxLength={150} />
           </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
+            <TextField label="Commission label" value={commissionLabel} onChange={setCommissionLabel} maxLength={150} />
+          </div>
         </section>
 
         <section className={sectionClass}>
@@ -392,15 +470,23 @@ export default function StampPaperPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {amountField('Sale price', salePrice, setSalePrice)}
             {amountField('Commission', serviceCharges, setServiceCharges)}
-            {amountField('Amount received', amountReceived, setAmountReceived)}
-            <Info label="Total payable" value={formatPkr(totalPaisa)} />
-            <Info label="Remaining balance" value={formatPkr(balancePaisa)} />
-            <label><span className={labelClass}>Payment method</span><select className={inputClass} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label>
-            <TextField label="Payment reference (optional)" value={paymentReference} onChange={setPaymentReference} maxLength={100} />
-            <label className="sm:col-span-2"><span className={labelClass}>Payment remarks (optional)</span><input className={inputClass} value={paymentRemarks} onChange={(event) => setPaymentRemarks(event.target.value)} maxLength={500} /></label>
+            {editingSaleId && selectedSale
+              ? <>
+                <Info label="Amount received" value={formatPkr(selectedSale.amount_received_paisa)} />
+                <Info label="Total payable" value={formatPkr(totalPaisa + selectedSale.other_fees_paisa)} />
+                <Info label="Remaining balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} />
+              </>
+              : <>
+                {amountField('Amount received', amountReceived, setAmountReceived, false)}
+                <Info label="Total payable" value={formatPkr(totalPaisa)} />
+                <Info label="Remaining balance" value={formatPkr(balancePaisa)} />
+                <label><span className={labelClass}>Payment method</span><select className={inputClass} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label>
+                <TextField label="Payment reference (optional)" value={paymentReference} onChange={setPaymentReference} maxLength={100} />
+                <label className="sm:col-span-2"><span className={labelClass}>Payment remarks (optional)</span><input className={inputClass} value={paymentRemarks} onChange={(event) => setPaymentRemarks(event.target.value)} maxLength={500} /></label>
+              </>}
           </div>
         </section>
-        <section className={sectionClass}>
+        {!editingSaleId && <section className={sectionClass}>
           <div className="mb-4"><h2 className="text-sm font-semibold text-gray-100">Documents (optional)</h2><p className="mt-1 text-xs text-gray-500">Upload multiple JPEG, PNG, or PDF files; each file can be up to 10 MB.</p></div>
           <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center border border-dashed border-gray-700 bg-gray-950/50 px-4 py-5 text-center hover:border-brand-500">
             <span className="text-sm font-medium text-gray-200">Choose transaction documents</span>
@@ -413,23 +499,50 @@ export default function StampPaperPage() {
             <button type="button" onClick={() => setPreview({ name: attachment.name, mimeType: attachment.mimeType, url: attachment.previewUrl })} className="text-xs text-brand-300">Preview</button>
             <button type="button" onClick={() => void removeAttachment(attachment)} className="text-xs text-red-400">Remove</button>
           </li>)}</ul>}
-        </section>
+        </section>}
         <section className={sectionClass}>
           <h2 className="mb-4 text-sm font-semibold text-gray-100">Remarks (optional)</h2>
           <label><span className={labelClass}>Remarks</span><textarea className={inputClass} value={remarks} onChange={(event) => setRemarks(event.target.value)} rows={3} maxLength={1000} /></label>
         </section>
-        <div className="flex justify-end"><button type="submit" disabled={busy} className="bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50">{busy ? 'Saving…' : 'Save Transaction'}</button></div>
+        <div className="flex justify-end gap-2">
+          {editingSaleId && <button type="button" disabled={busy} onClick={() => { setEditingSaleId(null); setActiveTab('history'); setError('') }} className="border border-gray-700 px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 disabled:opacity-50">Cancel</button>}
+          <button type="submit" disabled={busy} className="bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50">{busy ? (editingSaleId ? 'Updating…' : 'Saving…') : editingSaleId ? 'Update Transaction' : 'Save Transaction'}</button>
+        </div>
       </form>}
 
-      {activeTab === 'history' && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
-        <section className={sectionClass}>
+      {activeTab === 'history' && <div className={selectedSale ? 'space-y-5' : 'grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]'}>
+        {!selectedSale && <section className={sectionClass}>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto]"><input className={inputClass} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void loadSales() } }} aria-label="Search stamp transactions" placeholder="Invoice, ticket, reference, customer or registration" /><input className={inputClass} type="date" aria-label="From date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /><input className={inputClass} type="date" aria-label="To date" value={toDate} onChange={(event) => setToDate(event.target.value)} /><button type="button" onClick={() => void loadSales()} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800">Search</button></div><button type="button" disabled={exporting || sales.length === 0} onClick={() => void exportHistory()} className="border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-50">{exporting ? 'Preparing Excel…' : 'Export Excel'}</button></div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Invoice / Date', 'Reference', 'Ticket', 'Customer', 'Registration', 'Status', 'Total', 'Received', 'Balance'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{sales.map((sale) => <tr key={sale.id} onClick={() => void openTransaction(sale)} className={`cursor-pointer hover:bg-gray-800/60 ${selectedSale?.id === sale.id ? 'bg-gray-800/50' : ''}`}><td className="px-2 py-3"><span className="block text-gray-200">{sale.invoice_number}</span><span className="text-gray-500">{sale.transaction_date}</span></td><td className="px-2 py-3 text-gray-300">{sale.reference_name}</td><td className="px-2 py-3 text-gray-300">{sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</td><td className="px-2 py-3 text-gray-300">{sale.customer_name}</td><td className="px-2 py-3 text-gray-400">{sale.registration || '—'}</td><td className="px-2 py-3 text-gray-300">{sale.status}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.total_payable_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.amount_received_paisa)}</td><td className="px-2 py-3 text-gray-300">{formatPkr(sale.outstanding_balance_paisa)}</td></tr>)}</tbody></table>{sales.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No stamp paper transactions found.</p>}</div>
-        </section>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-xs">
+              <thead className="border-b border-gray-800 text-gray-500">
+                <tr>{['Invoice / Date', 'Reference', 'Ticket', 'Customer', 'Registration', 'Status', 'Total', 'Received', 'Balance', 'Actions'].map((head) => <th key={head} className="px-2 py-3 font-medium">{head}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {sales.map((sale) => <tr key={sale.id} onClick={() => void openTransaction(sale)} className="cursor-pointer hover:bg-gray-800/60">
+                  <td className="px-2 py-3"><span className="block text-gray-200">{sale.invoice_number}</span><span className="text-gray-500">{sale.transaction_date}</span></td>
+                  <td className="px-2 py-3 text-gray-300">{sale.reference_name}</td>
+                  <td className="px-2 py-3 text-gray-300">{sale.ticket_number || (sale.has_ticket_number ? 'Yes' : 'No')}</td>
+                  <td className="px-2 py-3 text-gray-300">{sale.customer_name}</td>
+                  <td className="px-2 py-3 text-gray-400">{sale.registration || '—'}</td>
+                  <td className="px-2 py-3 text-gray-300">{sale.status}</td>
+                  <td className="px-2 py-3 text-gray-300">{formatPkr(sale.total_payable_paisa)}</td>
+                  <td className="px-2 py-3 text-gray-300">{formatPkr(sale.amount_received_paisa)}</td>
+                  <td className="px-2 py-3 text-gray-300">{formatPkr(sale.outstanding_balance_paisa)}</td>
+                  <td className="px-2 py-3"><div className="flex gap-2">
+                    <button type="button" onClick={(event) => { event.stopPropagation(); void openTransaction(sale) }} className="text-brand-300 hover:text-brand-200">View</button>
+                    {sale.status !== 'CANCELLED' && <button type="button" onClick={(event) => { event.stopPropagation(); void editTransaction(sale) }} className="text-amber-300 hover:text-amber-200">Edit</button>}
+                  </div></td>
+                </tr>)}
+              </tbody>
+            </table>
+            {sales.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No stamp paper transactions found.</p>}
+          </div>
+        </section>}
 
-        <section className={sectionClass}>
-          {!selectedSale ? <div className="py-10 text-center text-sm text-gray-500">Select a transaction to view details.</div> : <div className="space-y-4">
-            <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-semibold text-gray-100">{selectedSale.invoice_number}</h2><p className="mt-1 text-xs text-gray-500">{selectedSale.transaction_id} · {selectedSale.transaction_date}</p></div><span className="text-xs text-gray-300">{selectedSale.status}</span></div>
+        {selectedSale && <section className={sectionClass}>
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3"><div><h2 className="text-base font-semibold text-gray-100">{selectedSale.invoice_number}</h2><p className="mt-1 text-xs text-gray-500">{selectedSale.transaction_id} · {selectedSale.transaction_date}</p></div><div className="flex items-center gap-3"><span className="text-xs text-gray-300">{selectedSale.status}</span>{selectedSale.status !== 'CANCELLED' && <button type="button" onClick={() => void editTransaction(selectedSale)} className="text-amber-300 hover:text-amber-200">Edit</button>}<button type="button" onClick={() => setSelectedSale(null)} className="border border-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800">Back</button></div></div>
             <div className="grid grid-cols-2 gap-3"><Info label="Reference name" value={selectedSale.reference_name} /><Info label="Ticket available" value={selectedSale.ticket_number || (selectedSale.has_ticket_number ? 'Yes' : 'No')} /><Info label="Customer name" value={selectedSale.customer_name} /><Info label="Registration" value={selectedSale.registration || '—'} /><Info label="Remarks" value={selectedSale.remarks || '—'} /></div>
             <div className="grid grid-cols-2 gap-3"><Info label="Sale price" value={formatPkr(selectedSale.sale_price_paisa)} /><Info label="Commission" value={formatPkr(selectedSale.service_charges_paisa)} />{selectedSale.other_fees_paisa > 0 && <Info label="Historical other fees" value={formatPkr(selectedSale.other_fees_paisa)} />}<Info label="Total payable" value={formatPkr(selectedSale.total_payable_paisa)} /><Info label="Received" value={formatPkr(selectedSale.amount_received_paisa)} /><Info label="Balance" value={formatPkr(selectedSale.outstanding_balance_paisa)} /></div>
             <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Payment history</h3>{selectedSale.payments.length ? <ul className="divide-y divide-gray-800">{selectedSale.payments.map((payment) => <li key={payment.id} className="flex justify-between gap-3 py-2 text-xs"><span className="text-gray-400">{payment.receipt_number} · {payment.method} · {payment.paid_at}</span><span className="text-gray-200">{formatPkr(payment.amount_paisa)}</span></li>)}</ul> : <p className="text-xs text-gray-500">No payments recorded.</p>}</div>
@@ -438,8 +551,8 @@ export default function StampPaperPage() {
             {canManageDocuments && selectedSale.status !== 'CANCELLED' && <form onSubmit={(event) => void cancelTransaction(event)} className="grid gap-2 border-t border-gray-800 pt-3 sm:grid-cols-[1fr_1fr_auto]"><label><span className={labelClass}>Full refund method</span><select className={inputClass} value={refundMethod} onChange={(event) => setRefundMethod(event.target.value as PaymentMethod)}><PaymentOptions /></select></label><label><span className={labelClass}>Cancellation / refund reason</span><input className={inputClass} required maxLength={500} value={refundReason} onChange={(event) => setRefundReason(event.target.value)} /></label><button disabled={busy} className="self-end bg-red-800 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">Cancel & refund</button></form>}
             {canManageDocuments && selectedSale.documents.length > 0 && <div><h3 className="mb-2 text-xs font-semibold text-gray-300">Attachments</h3><ul className="space-y-2">{selectedSale.documents.map((document) => <li key={document.id} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-gray-400">{document.original_filename}</span><span className="flex shrink-0 gap-3"><button type="button" className="text-brand-300" onClick={() => void openAttachment(document as unknown as StampDocumentRow)}>Preview</button><button type="button" className="text-red-400" onClick={() => void removeSavedAttachment(document as unknown as StampDocumentRow)}>Remove</button></span></li>)}</ul></div>}
             <button type="button" disabled={!receiptSettings} onClick={() => window.print()} className="border border-gray-700 px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 disabled:opacity-50">Print receipt</button>
-          </div>}
-        </section>
+          </div>
+        </section>}
       </div>}
 
       {selectedSale && receiptSettings && <Receipt sale={selectedSale} settings={receiptSettings} />}

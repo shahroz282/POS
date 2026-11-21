@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { PageId } from '../app/App'
+import { useSelectedDate } from '../utils/selected-date'
 import type {
   DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport, InventorySummary, ReportsReport, SaleRow
 } from '@shared/schemas'
@@ -49,6 +50,7 @@ function formatTime(value: string): string {
 }
 
 export default function DashboardPage({ onNavigate, allowedPages, role }: Props) {
+  const [selectedDate] = useSelectedDate()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -65,12 +67,15 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
   const [dayOpeningAmount, setDayOpeningAmount] = useState('')
   const [dayOpeningInput, setDayOpeningInput] = useState('')
   const [dayOpeningReason, setDayOpeningReason] = useState('')
+  const [calculator, setCalculator] = useState('0')
+  const [calculatorValue, setCalculatorValue] = useState<number | null>(null)
+  const [calculatorOperation, setCalculatorOperation] = useState< '+' | '-' | '*' | '/' | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const date = today()
+      const date = selectedDate
       const [reportResult, inventoryResult, salesResult, summaryResult, closingResult, expensesResult] = await Promise.all([
         window.api.reportsLoad({ fromDate: date, toDate: date }),
         window.api.inventorySummary(),
@@ -116,7 +121,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
     } finally {
       setLoading(false)
     }
-  }, [role])
+  }, [role, selectedDate])
 
   useEffect(() => { void load() }, [load])
 
@@ -135,7 +140,7 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
       return
     }
     const result = await window.api.dailyClosingSave({
-      date: today(),
+      date: selectedDate,
       openingCash: amount,
       openingReason: dayOpeningReason
     })
@@ -146,6 +151,39 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
     setDayOpeningDialogOpen(false)
     setNotice('Opening cash saved and included in today’s cash reconciliation.')
     await load()
+  }
+
+  const calculate = (operation: '+' | '-' | '*' | '/') => {
+    const current = Number(calculator)
+    if (calculatorValue === null) setCalculatorValue(current)
+    else if (calculatorOperation) {
+      const result = calculatorOperation === '+'
+        ? calculatorValue + current
+        : calculatorOperation === '-'
+          ? calculatorValue - current
+          : calculatorOperation === '*'
+            ? calculatorValue * current
+            : current === 0 ? Number.NaN : calculatorValue / current
+      setCalculatorValue(Number.isFinite(result) ? result : null)
+      setCalculator(Number.isFinite(result) ? String(result) : 'Error')
+    }
+    setCalculatorOperation(operation)
+    setCalculator('0')
+  }
+
+  const calculateEquals = () => {
+    if (calculatorValue === null || !calculatorOperation) return
+    const current = Number(calculator)
+    const result = calculatorOperation === '+'
+      ? calculatorValue + current
+      : calculatorOperation === '-'
+        ? calculatorValue - current
+        : calculatorOperation === '*'
+          ? calculatorValue * current
+          : current === 0 ? Number.NaN : calculatorValue / current
+    setCalculator(Number.isFinite(result) ? String(result) : 'Error')
+    setCalculatorValue(null)
+    setCalculatorOperation(null)
   }
 
   const addExpense = async (event: FormEvent<HTMLFormElement>) => {
@@ -194,6 +232,14 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
   const lowStockCount = data?.inventory.lowStockCount ?? 0
   const healthyProducts = Math.max(0, activeProducts - lowStockCount)
   const healthyProductPercent = activeProducts > 0 ? Math.round((healthyProducts / activeProducts) * 100) : 0
+  const targetReceived = (sales?.cashReceived ?? 0) + (sales?.nonCashReceived ?? 0) + (photocopy?.cashReceived ?? 0) + (photocopy?.nonCashReceived ?? 0)
+  const targetPercent = Math.min(100, Math.round((targetReceived / 5000) * 100))
+  const targetStatus = targetPercent <= 10 ? 'Very poor'
+    : targetPercent <= 20 ? 'Poor'
+      : targetPercent <= 40 ? 'Normal'
+        : targetPercent <= 60 ? 'Good work'
+          : targetPercent <= 80 ? 'Very good'
+            : 'Excellent target achieved'
   const availableShortcuts = shortcuts.filter((shortcut) => allowedPages.includes(shortcut.page))
   const canAddExpense = allowedPages.includes('daily-closing')
 
@@ -348,6 +394,46 @@ export default function DashboardPage({ onNavigate, allowedPages, role }: Props)
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]" aria-label="Target and calculator">
+            <div className="border border-gray-800 bg-gray-900/60 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Daily target meter</h2>
+                  <p className="mt-1 text-xs text-gray-500">Shop sale and photocopy receipts for {selectedDate}</p>
+                </div>
+                <span className="text-lg font-bold text-brand-300">{targetPercent}%</span>
+              </div>
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-gray-800">
+                <div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${targetPercent}%` }} />
+              </div>
+              <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs">
+                <span className="text-gray-400">{money(targetReceived)} of {money(5000)}</span>
+                <span className="font-semibold text-emerald-300">{targetStatus}</span>
+              </div>
+            </div>
+            <div className="border border-gray-800 bg-gray-900/60 p-4">
+              <h2 className="mb-3 text-sm font-semibold text-white">Calculator</h2>
+              <input aria-label="Calculator display" readOnly value={calculator}
+                className="mb-2 w-full border border-gray-700 bg-gray-950 px-3 py-2 text-right text-lg text-gray-100" />
+              <div className="grid grid-cols-4 gap-2">
+                {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+'].map((key) => (
+                  <button key={key} type="button"
+                    onClick={() => {
+                      if (key === '=') calculateEquals()
+                      else if (key === '+' || key === '-' || key === '*' || key === '/') calculate(key)
+                      else if (key === '.') setCalculator((current) => current.includes('.') ? current : `${current}.`)
+                      else setCalculator((current) => current === '0' || current === 'Error' ? key : `${current}${key}`)
+                    }}
+                    className="border border-gray-700 bg-gray-950 px-2 py-2 text-sm text-gray-200 hover:bg-gray-800">
+                    {key}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => { setCalculator('0'); setCalculatorValue(null); setCalculatorOperation(null) }}
+                className="mt-2 w-full border border-gray-700 px-3 py-2 text-xs text-gray-300 hover:bg-gray-800">Clear</button>
             </div>
           </section>
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''))
+const isoDate = z.string().date()
 const cnicSchema = optionalText(30).refine(
   (value) => !value || (/^[\d\s-]+$/.test(value) && value.replace(/\D/g, '').length === 13),
   'Enter CNIC as XXXXX-XXXXXXX-X'
@@ -53,6 +54,7 @@ export type StampPaperSaleCreate = z.infer<typeof StampPaperSaleCreateSchema>
 
 export const StampPaymentCreateSchema = z.object({
   saleId: z.number().int().positive(),
+  entryDate: isoDate.optional(),
   amountPaisa: z.number().int().positive().max(100_000_000),
   method: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),
   referenceNumber: optionalText(100),
@@ -176,7 +178,15 @@ export interface StampDocumentRow {
 export const SimpleStampSaleCreateSchema = z.object({
   transactionId: z.string().uuid(),
   idempotencyKey: z.string().uuid(),
+  entryDate: isoDate.optional(),
   referenceName: z.string().trim().min(1).max(150),
+  department: z.string().trim().min(1).max(150).optional().default(''),
+  quantity100: z.number().int().nonnegative().max(1_000_000).optional().default(0),
+  quantity200: z.number().int().nonnegative().max(1_000_000).optional().default(0),
+  quantity300: z.number().int().nonnegative().max(1_000_000).optional().default(0),
+  issueStatus: z.enum(['PENDING', 'ISSUED']).optional().default('PENDING'),
+  commissionPaisa: z.number().int().nonnegative().max(100_000_000).optional(),
+  commissionLabel: optionalText(150),
   hasTicketNumber: z.boolean().default(false),
   customerName: z.string().trim().min(1).max(150),
   registration: z.string({ required_error: 'Enter the registration.' })
@@ -195,6 +205,21 @@ export const SimpleStampSaleCreateSchema = z.object({
   stagedDocumentTokens: z.array(z.string().uuid()).max(20).default([])
 })
 export type SimpleStampSaleCreate = z.infer<typeof SimpleStampSaleCreateSchema>
+
+export const SimpleStampSaleUpdateSchema = z.object({
+  stampId: z.number().int().positive(),
+  referenceName: z.string().trim().min(1).max(150),
+  department: optionalText(150),
+  hasTicketNumber: z.boolean(),
+  customerName: z.string().trim().min(1).max(150),
+  registration: z.string().trim().min(1).max(150),
+  status: z.enum(['PENDING', 'COMPLETED']),
+  salePricePaisa: z.number().int().nonnegative().max(100_000_000),
+  serviceChargesPaisa: z.number().int().nonnegative().max(100_000_000),
+  commissionLabel: optionalText(150),
+  remarks: optionalText(1000)
+})
+export type SimpleStampSaleUpdate = z.infer<typeof SimpleStampSaleUpdateSchema>
 
 export const SimpleStampPaymentCreateSchema = StampPaymentCreateSchema
 export const SimpleStampRefundCreateSchema = z.object({
@@ -223,6 +248,14 @@ export interface SimpleStampSaleRow {
   has_ticket_number: number
   customer_name: string
   registration: string
+  department: string | null
+  quantity_100: number
+  quantity_200: number
+  quantity_300: number
+  commission_paisa: number
+  commission_label: string | null
+  issue_status: 'PENDING' | 'ISSUED'
+  issued_date: string | null
   status: 'PENDING' | 'COMPLETED' | 'CANCELLED'
   sale_price_paisa: number
   service_charges_paisa: number

@@ -1,5 +1,6 @@
 import type { PageId } from '../../app/App'
 import type { SessionUser } from '@shared/schemas'
+import { todayDate, useSelectedDate } from '../../utils/selected-date'
 
 interface NavItem {
   id: Exclude<PageId, 'login' | 'setup-admin'>
@@ -9,15 +10,15 @@ interface NavItem {
 
 const ALL_NAV_ITEMS: NavItem[] = [
   { id: 'dashboard',     label: 'Dashboard',      icon: '🏠' },
-  { id: 'sales',         label: 'Normal Sales',   icon: '🛒' },
-  { id: 'stamp-paper',   label: 'Stamp Paper',    icon: '📜' },
+  { id: 'sales',         label: 'Shop Sale',      icon: '🛒' },
+  { id: 'stamp-paper',   label: 'Stamp Ledger',   icon: '📜' },
   { id: 'photocopy',     label: 'Photocopy',      icon: '📄' },
   { id: 'admissions',    label: 'Admissions',     icon: '🎓' },
   { id: 'filer-customers', label: 'Filer Customers', icon: '🧾' },
   { id: 'schemes',       label: 'Schemes',        icon: '📋' },
-  { id: 'daily-closing', label: 'Daily Closing',  icon: '📅' },
-  { id: 'udhaar',        label: 'Udhaar',         icon: '💳' },
-  { id: 'inventory',     label: 'Inventory',      icon: '📦' },
+  { id: 'daily-closing', label: 'Galla Cash',     icon: '📅' },
+  { id: 'udhaar',        label: 'Udhaar / Pending', icon: '💳' },
+  { id: 'inventory',     label: 'Stock',          icon: '📦' },
   { id: 'reports',       label: 'Reports',        icon: '📊' },
   { id: 'users',         label: 'Users',          icon: '👥' },
   { id: 'settings',      label: 'Settings',       icon: '⚙️' },
@@ -38,6 +39,8 @@ interface Props {
  */
 export default function SidebarLayout({ currentPage, onNavigate, user, allowedPages, onLogout, children }: Props) {
   const visibleItems = ALL_NAV_ITEMS.filter((item) => allowedPages.includes(item.id))
+  const [selectedDate, setSelectedDate] = useSelectedDate()
+  const pastDate = selectedDate !== todayDate()
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -94,6 +97,29 @@ export default function SidebarLayout({ currentPage, onNavigate, user, allowedPa
 
       {/* ── Main content ── */}
       <main className="flex-1 overflow-y-auto bg-gray-950">
+        <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 ${pastDate ? 'border-red-900 bg-red-950/30' : 'border-gray-800 bg-gray-900/40'}`}>
+          <div className="text-xs">
+            <span className="font-semibold text-gray-400">Master Date:</span>{' '}
+            <span className={pastDate ? 'font-semibold text-red-300' : 'text-gray-300'}>{selectedDate}</span>
+            {pastDate && <span className="ml-2 text-red-400">Past-date mode</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={selectedDate}
+              max={todayDate()}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              aria-label="Master date"
+              className="border border-gray-700 bg-gray-950 px-2 py-1 text-xs text-gray-100"
+            />
+            {pastDate && (
+              <button type="button" onClick={() => setSelectedDate(todayDate())}
+                className="border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800">
+                Today
+              </button>
+            )}
+          </div>
+        </div>
         {children}
       </main>
     </div>

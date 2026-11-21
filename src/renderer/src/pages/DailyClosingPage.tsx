@@ -197,8 +197,8 @@ export default function DailyClosingPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Daily Closing</h1>
-          <p className="mt-1 text-sm text-gray-400">Review module activity and reconcile cash for a selected date range.</p>
+          <h1 className="text-2xl font-semibold text-white">Galla Cash &amp; Daily Closing</h1>
+          <p className="mt-1 text-sm text-gray-400">Review Galla cash, module activity, and reconcile cash for a selected date range.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <label className="text-xs text-gray-400">From

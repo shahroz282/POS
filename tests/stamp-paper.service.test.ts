@@ -225,6 +225,62 @@ describe('StampPaperService', () => {
     expect(simpleService.cancelSimpleSale(cancellation, 'ADMIN').refunds).toHaveLength(1)
   })
 
+  it('updates simple stamp transaction details without changing recorded payments or allowing an underpaid total', () => {
+    const sale = service.createSimpleSale({
+      transactionId: 'aa75f269-e1ae-4d38-a250-a20db52a0e44',
+      idempotencyKey: 'bb75f269-e1ae-4d38-a250-a20db52a0e44',
+      referenceName: 'Old reference',
+      customerName: 'Old customer',
+      registration: 'REG-23',
+      status: 'PENDING',
+      salePricePaisa: 250_000,
+      serviceChargesPaisa: 10_000,
+      otherFeesPaisa: 0,
+      amountReceivedPaisa: 100_000,
+      paymentMethod: 'CASH',
+      stagedDocumentTokens: []
+    })
+
+    const updated = service.updateSimpleSale({
+      stampId: sale.id,
+      referenceName: 'Updated reference',
+      department: 'Legal',
+      hasTicketNumber: true,
+      customerName: 'Updated customer',
+      registration: 'REG-23A',
+      status: 'COMPLETED',
+      salePricePaisa: 280_000,
+      serviceChargesPaisa: 15_000,
+      commissionLabel: 'Service fee',
+      remarks: 'Updated record'
+    })
+
+    expect(updated).toMatchObject({
+      reference_name: 'Updated reference',
+      department: 'Legal',
+      customer_name: 'Updated customer',
+      registration: 'REG-23A',
+      status: 'COMPLETED',
+      total_payable_paisa: 295_000,
+      amount_received_paisa: 100_000,
+      outstanding_balance_paisa: 195_000,
+      commission_label: 'Service fee',
+      remarks: 'Updated record'
+    })
+    expect(updated.payments).toHaveLength(1)
+    expect(() => service.updateSimpleSale({
+      stampId: sale.id,
+      referenceName: 'Updated reference',
+      hasTicketNumber: true,
+      customerName: 'Updated customer',
+      registration: 'REG-23A',
+      status: 'COMPLETED',
+      salePricePaisa: 50_000,
+      serviceChargesPaisa: 0
+    })).toThrow('Total payable cannot be less than payments already recorded')
+    expect(service.getSimpleSale(sale.id).total_payable_paisa).toBe(295_000)
+  })
+
   it('allows transactions without a ticket number but requires registration', () => {
     const invalidModel = SimpleStampSaleCreateSchema.safeParse({
       transactionId: 'aa65f269-e1ae-4d38-a250-a20db52a0e44',

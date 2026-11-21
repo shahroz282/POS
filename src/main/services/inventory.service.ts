@@ -35,6 +35,10 @@ export class InventoryService {
   purchases() { return this.repository.listPurchases() }
   movements() { return this.repository.movements() }
   sales(search: SaleSearch) { return this.repository.listSales(search.query, search.fromDate, search.toDate) }
+  markSaleWorkCompleted(saleId: number): void {
+    this.ensureUnlockedSale(saleId)
+    this.repository.markSaleWorkCompleted(saleId)
+  }
   saleDetail(saleId: number) {
     const sale = this.repository.saleDetail(saleId)
     if (!sale) throw new Error('Sale not found')
@@ -228,15 +232,16 @@ export class InventoryService {
         }
         return existing
       }
-      const saleDate = localDate()
+      const saleDate = input.entryDate || localDate()
       this.ensureDayOpen(saleDate)
-      const uniqueIds = input.items.map((item) => item.productId)
-      if (new Set(uniqueIds).size !== uniqueIds.length) throw new Error('Each product can only appear once in the cart')
-      const products = this.repository.productPriceRows(uniqueIds)
-      if (products.length !== input.items.length || products.some((product) => product.is_active !== 1)) {
-        throw new Error('One or more selected products are unavailable')
+      const stockItems = input.items.filter((item) => item.productId !== undefined)
+      const uniqueIds = stockItems.map((item) => item.productId)
+      if (new Set(uniqueIds).size !== uniqueIds.length) throw new Error('Each stock product can only appear once in the cart')
+      const products = uniqueIds.length ? this.repository.productPriceRows(uniqueIds) : []
+      if (products.length !== uniqueIds.length || products.some((product) => product.is_active !== 1)) {
+        throw new Error('One or more selected stock products are unavailable')
       }
-      for (const item of input.items) {
+      for (const item of stockItems) {
         const product = products.find((row) => row.id === item.productId)!
         if (product.stock_qty < item.quantity) throw new Error(`Insufficient stock for ${product.name}`)
       }
@@ -254,38 +259,75 @@ export class InventoryService {
       const total = subtotal - input.discount
       if (input.receivedAmount > total) throw new Error('Amount received cannot exceed the sale total')
       const credit = total - input.receivedAmount
-      if (credit > 0 && input.customerId == null) throw new Error('Select a customer to record the unpaid balance')
-      if (input.customerId != null && !this.db.prepare('SELECT id FROM customers WHERE id = ?').get(input.customerId)) {
+      let customerId = input.customerId ?? null
+      if (credit > 0 && customerId == null) {
+        if (!input.customerName?.trim()) throw new Error('Select a customer or enter a customer name for pending credit')
+        const existingCustomer = this.db.prepare(`
+          SELECT id FROM customers
+          WHERE lower(trim(name)) = lower(trim(?))
+            AND (? = '' OR COALESCE(phone, '') = ?)
+          LIMIT 1
+        `).get(input.customerName.trim(), input.mobile?.trim() || '', input.mobile?.trim() || '') as { id: number } | undefined
+        if (existingCustomer) customerId = existingCustomer.id
+        else {
+          const result = this.db.prepare(`
+            INSERT INTO customers (name, phone)
+            VALUES (?, ?)
+          `).run(input.customerName.trim(), input.mobile?.trim() || null)
+          customerId = Number(result.lastInsertRowid)
+        }
+      }
+      if (customerId != null && !this.db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId)) {
         throw new Error('Customer not found')
       }
       const day = saleDate.replaceAll('-', '')
       const invoiceNo = `INV-${day}-${String(this.repository.nextNumber('INV', day)).padStart(4, '0')}`
       const saleId = this.repository.insertSale({
-        invoiceNo, idempotencyKey: input.idempotencyKey, customerId: input.customerId,
+        invoiceNo, idempotencyKey: input.idempotencyKey, customerId,
         subtotal, discount: input.discount, total, receivedAmount: input.receivedAmount,
-        status: credit > 0 ? 'PARTIAL' : 'COMPLETED', createdBy: userId
+        status: credit > 0 ? 'PARTIAL' : 'COMPLETED',
+        workStatus: input.workStatus, saleNote: input.saleNote,
+        mobile: input.mobile, entryDate: saleDate, createdBy: userId
       })
       for (const item of input.items) {
         const product = products.find((row) => row.id === item.productId)!
         const lineTotal = product.sale_price * item.quantity
         this.repository.insertSaleItem(saleId, item.productId, item.quantity, product.sale_price,
-          product.purchase_price, lineTotal)
+          product.purchase_price, lineTotal, 'STOCK', product.name, item.extraDetails)
         this.repository.changeStock(item.productId, -item.quantity)
-        this.repository.insertMovement(item.productId, 'SALE', -item.quantity, 'SALE', saleId, invoiceNo, userId)
+        this.repository.insertMovement(item.productId, 'SALE', -item.quantity, 'SALE', saleId,
+          `${invoiceNo}${item.extraDetails ? `; ${item.extraDetails}` : ''}`, userId)
       }
       if (input.receivedAmount > 0) {
         const receiptNo = `PAY-${day}-${String(this.repository.nextNumber('PAY', day)).padStart(4, '0')}`
         this.repository.insertPayment({
           saleId, receiptNo, amount: input.receivedAmount, method: input.paymentMethod,
-          idempotencyKey: `${input.idempotencyKey}:payment`, balanceAfter: credit, createdBy: userId
+          idempotencyKey: `${input.idempotencyKey}:payment`, balanceAfter: credit,
+          createdBy: userId, entryDate: saleDate
         })
       }
       if (credit > 0) {
-        this.repository.insertUdhaar(input.customerId!, saleId, credit,
-          `${input.idempotencyKey}:credit`, userId)
+        this.repository.insertUdhaar(customerId!, saleId, credit,
+          `${input.idempotencyKey}:credit`, userId, saleDate)
       }
       this.audit.insert(userId, 'SALE_CREATED', 'sales', saleId, `${invoiceNo}; total ${total}; credit ${credit}`)
       return this.repository.saleDetail(saleId)!
+    })()
+  }
+
+  deleteSale(input: { saleId: number; deletePin: string; reason: string }, userId: number): void {
+    const configuredPin = this.db.prepare("SELECT value FROM settings WHERE key = 'delete_pin'")
+      .get() as { value: string } | undefined
+    if (input.deletePin !== (configuredPin?.value || '1234')) {
+      throw new Error('Invalid delete PIN')
+    }
+    this.db.transaction(() => {
+      const sale = this.repository.saleDetail(input.saleId)
+      if (!sale) throw new Error('Sale not found')
+      this.ensureDayOpen(sale.created_at.slice(0, 10))
+      this.repository.deleteSale(input.saleId, userId, input.reason)
+      this.audit.insert(userId, 'SALE_DELETED', 'sales', input.saleId,
+        `${sale.invoice_no}; ${input.reason}`)
     })()
   }
 
@@ -293,5 +335,14 @@ export class InventoryService {
     if (this.db.prepare('SELECT id FROM daily_closings WHERE closing_date = ? AND is_locked = 1').get(date)) {
       throw new Error('This date is closed. An Admin must unlock the day before recording this transaction.')
     }
+  }
+
+  private ensureUnlockedSale(saleId: number): void {
+    const row = this.db.prepare(`
+      SELECT date(created_at) AS entry_date
+      FROM sales WHERE id = ?
+    `).get(saleId) as { entry_date: string } | undefined
+    if (!row) throw new Error('Sale not found')
+    this.ensureDayOpen(row.entry_date)
   }
 }

@@ -8,7 +8,7 @@ import type {
 } from '@shared/schemas'
 import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
 
-type Tab = 'overview' | 'schemes' | 'applications' | 'new-application' | 'edit-applicant' | 'manage-fees'
+type Tab = 'overview' | 'schemes' | 'applications' | 'application-detail' | 'new-application' | 'edit-applicant' | 'manage-fees'
 type SchemeStatus = 'RECEIVED' | 'UNDER_REVIEW' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'PENDING_DOCUMENTS' | 'COMPLETED' | 'CANCELLED'
 type PayMethod = 'CASH' | 'BANK' | 'EASYPAISA' | 'JAZZCASH' | 'OTHER'
 type ApplicationEditForm = Omit<SchemeApplicationUpdate, 'applicationId'>
@@ -194,7 +194,7 @@ export default function SchemesPage() {
       return
     }
     const match = result.data.find((item) => item.application_no === applicationNo)
-    if (match && await openApplication(match.id)) setTab('applications')
+    if (match && await openApplication(match.id)) setTab('application-detail')
   }
 
   const openApplicationFees = async (id: number) => {
@@ -321,7 +321,7 @@ export default function SchemesPage() {
         applicationFee: '', discountAmount: '0', remarks: '', customFields: {}
       })
       await Promise.all([loadApplications(), loadSummary(), loadSchemes()])
-      if (await openApplication(result.data.applicationId)) setTab('applications')
+      if (await openApplication(result.data.applicationId)) setTab('application-detail')
     }
     setBusy(false)
   }
@@ -376,7 +376,7 @@ export default function SchemesPage() {
     }
     setNotice('Applicant details updated.')
     await Promise.all([openApplication(input.applicationId), loadApplications(search, schemeFilter, statusFilter)])
-    setTab('applications')
+    setTab('application-detail')
   }
 
   const submitApplicationEdit = async (event: FormEvent<HTMLFormElement>) => {
@@ -491,7 +491,7 @@ export default function SchemesPage() {
         <Metric label="Outstanding application fees" value={money(summary.outstanding)} /><Metric label="Closed schemes" value={summary.closedSchemes} />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className={sectionClass}><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-gray-100">Recent applications</h2><button type="button" onClick={() => navigate('applications')} className="text-xs text-brand-300">View all</button></div><ApplicationTable rows={applications.slice(0, 8)} onOpen={(id) => void openApplication(id).then((opened) => { if (opened) setTab('applications') })} onManageFees={(id) => void openApplicationFees(id)} /></section>
+        <section className={sectionClass}><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold text-gray-100">Recent applications</h2><button type="button" onClick={() => navigate('applications')} className="text-xs text-brand-300">View all</button></div><ApplicationTable rows={applications.slice(0, 8)} onOpen={(id) => void openApplication(id).then((opened) => { if (opened) setTab('application-detail') })} onManageFees={(id) => void openApplicationFees(id)} /></section>
         <section className={sectionClass}><h2 className="mb-3 text-sm font-semibold text-gray-100">Recent fee payments</h2><div className="overflow-x-auto"><table className="w-full min-w-[500px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Receipt / application', 'Applicant / scheme', 'Amount', 'Method', 'Date', ''].map((head) => <th key={head} className="px-2 py-2">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{summary.recentPayments.map((payment) => <tr key={payment.id}><td className="px-2 py-2"><span className="block text-brand-300">{payment.receipt_no}</span><span className="text-gray-500">{payment.application_no}</span></td><td className="px-2 py-2"><span className="block text-gray-200">{payment.applicant_name}</span><span className="text-gray-500">{payment.scheme_name}</span></td><td className="px-2 py-2 text-gray-200">{money(payment.amount)}</td><td className="px-2 py-2 text-gray-400">{payment.method}{payment.reversed ? ' · reversed' : ''}</td><td className="px-2 py-2 text-gray-400">{payment.paid_at}</td><td className="px-2 py-2"><button type="button" onClick={() => void openApplicationByNo(payment.application_no)} className="text-brand-300">Open</button></td></tr>)}</tbody></table>{summary.recentPayments.length === 0 && <Empty text="No scheme payments yet." />}</div></section>
       </div>
     </section>}
@@ -535,8 +535,12 @@ export default function SchemesPage() {
         <select className={inputClass} value={paymentStatusFilter} onChange={(event) => setPaymentStatusFilter(event.target.value)}><option value="">All payment states</option><option value="UNPAID">Unpaid</option><option value="PARTIAL">Partially paid</option><option value="PAID">Fully paid</option></select>
         <button type="button" onClick={() => void loadApplications(search, schemeFilter, statusFilter, fromDateFilter, toDateFilter, paymentStatusFilter)} className="border border-gray-700 px-4 text-sm text-gray-200 hover:bg-gray-800 xl:col-span-6">Search</button>
       </div>
-      <section className={sectionClass}><ApplicationTable rows={applications} onOpen={(id) => void openApplication(id)} onEdit={(id) => void editApplication(id)} onManageFees={(id) => void openApplicationFees(id)} /></section>
-      {selected && <ApplicationProfile application={selected} canManage={canManage} onEdit={() => void editApplication(selected.id)} onStatus={updateStatus} canMoveTo={selectedCanMoveTo} onCollect={() => setTab('manage-fees')} onReverse={(id) => void reversePayment(id)} onPrintPayment={(payment) => {
+      <section className={sectionClass}><ApplicationTable rows={applications} onOpen={(id) => void openApplication(id).then((opened) => { if (opened) setTab('application-detail') })} onEdit={(id) => void editApplication(id)} onManageFees={(id) => void openApplicationFees(id)} /></section>
+    </section>}
+
+    {tab === 'application-detail' && selected && <section className="space-y-4">
+      <button type="button" onClick={() => setTab('applications')} className="border border-gray-700 px-3 py-2 text-sm text-gray-200 hover:bg-gray-800">Back to applications</button>
+      <ApplicationProfile application={selected} canManage={canManage} onEdit={() => void editApplication(selected.id)} onStatus={updateStatus} canMoveTo={selectedCanMoveTo} onCollect={() => setTab('manage-fees')} onReverse={(id) => void reversePayment(id)} onPrintPayment={(payment) => {
         setReceipt({ applicant: selected, payment: {
           receiptNumber: payment.receipt_no, amount: payment.amount,
           balance: payment.balance_after ?? selected.balance, paidAt: payment.paid_at,
@@ -544,7 +548,7 @@ export default function SchemesPage() {
         } })
         if (receiptSettings) setTimeout(() => window.print(), 0)
         else setError('Receipt settings are not ready. Wait for them to load, then print the receipt.')
-      }} />}
+      }} />
     </section>}
 
     {tab === 'new-application' && <form onInvalidCapture={(event) => {
@@ -607,7 +611,7 @@ export default function SchemesPage() {
       <section className={`${sectionClass} space-y-4`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 className="text-lg font-semibold text-gray-100">Edit applicant</h2><p className="mt-1 text-xs text-gray-500">{selected.application_no} · {selected.scheme_name} · Applied {selected.application_date}</p></div>
-          <div className="text-right text-xs text-gray-400"><p>Fee: {money(selected.application_fee)}</p><p>Balance: {money(selected.balance)}</p></div>
+          <div className="flex items-center gap-4"><div className="text-right text-xs text-gray-400"><p>Fee: {money(selected.application_fee)}</p><p>Balance: {money(selected.balance)}</p></div><button type="button" onClick={() => setTab('application-detail')} className="border border-gray-700 px-3 py-2 text-xs text-gray-300 hover:bg-gray-800">Back to application</button></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Field label="Applicant full name" required><input required maxLength={100} className={inputClass} value={applicationEditForm.applicantName} onChange={(event) => setApplicationEditForm({ ...applicationEditForm, applicantName: event.target.value })} /></Field>
@@ -622,7 +626,7 @@ export default function SchemesPage() {
           <Field label="Remarks"><input maxLength={1000} className={inputClass} value={applicationEditForm.remarks || ''} onChange={(event) => setApplicationEditForm({ ...applicationEditForm, remarks: event.target.value })} /></Field>
         </div>
       </section>
-      <div className="flex justify-end gap-2"><button type="button" onClick={() => setTab('applications')} className="border border-gray-700 px-4 py-2 text-sm text-gray-300">Cancel</button><button disabled={busy} className="bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50">{busy ? 'Saving…' : 'Save changes'}</button></div>
+      <div className="flex justify-end gap-2"><button type="button" onClick={() => setTab('application-detail')} className="border border-gray-700 px-4 py-2 text-sm text-gray-300">Cancel</button><button disabled={busy} className="bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-500 disabled:opacity-50">{busy ? 'Saving…' : 'Save changes'}</button></div>
     </form>}
 
     {tab === 'manage-fees' && <section className="space-y-4">
@@ -650,7 +654,7 @@ export default function SchemesPage() {
           else setError('Receipt settings are not ready. Wait for them to load, then print the receipt.')
         }} />
       </section>}
-      {!selected && <section className={sectionClass}><ApplicationTable rows={applications} onOpen={(id) => void openApplication(id)} onManageFees={(id) => void openApplicationFees(id)} /></section>}
+      {!selected && <section className={sectionClass}><ApplicationTable rows={applications} onOpen={(id) => void openApplication(id).then((opened) => { if (opened) setTab('application-detail') })} onManageFees={(id) => void openApplicationFees(id)} /></section>}
     </section>}
 
     {receipt && <div className="print-receipt mx-auto w-full max-w-2xl border border-gray-700 bg-white p-6 text-gray-950">
@@ -708,19 +712,75 @@ function ApplicationProfile({ application, canManage, onEdit, onStatus, canMoveT
   onPrintPayment: (payment: SchemeApplicationDetail['payments'][number]) => void
 }) {
   return <section className={`${sectionClass} space-y-4`}>
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-brand-300">{application.application_no}</p><h2 className="text-lg font-semibold text-gray-100">{application.applicant_name}</h2><p className="text-xs text-gray-500">{application.scheme_name} · {application.father_name || '—'} · {application.mobile || 'No phone'}</p></div><div className="flex flex-wrap gap-2">{canManage && <button type="button" onClick={onEdit} className="border border-gray-700 px-3 py-2 text-xs text-gray-200">Edit details</button>}<button type="button" onClick={onCollect} className="bg-brand-700 px-3 py-2 text-xs text-white">Collect fee</button>{statuses.filter(canMoveTo).map((status) => <button key={status} type="button" onClick={() => onStatus(status)} className="border border-gray-700 px-3 py-2 text-xs text-gray-200">{status.replaceAll('_', ' ')}</button>)}</div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-xs text-brand-300">{application.application_no}</p><h2 className="text-lg font-semibold text-gray-100">{application.applicant_name}</h2><p className="text-xs text-gray-500">{application.scheme_name} · {application.father_name || '—'} · {application.mobile || 'No phone'}</p></div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`border px-2.5 py-1.5 text-xs font-medium ${statusBadgeClass(application.status)}`}>Current status: {application.status.replaceAll('_', ' ')}</span>
+        {canManage && <button type="button" onClick={onEdit} className="border border-gray-700 px-3 py-2 text-xs text-gray-200">Edit details</button>}
+        <button type="button" onClick={onCollect} className="bg-brand-700 px-3 py-2 text-xs text-white">Collect fee</button>
+        {statuses.filter(canMoveTo).map((status) => <button key={status} type="button" onClick={() => onStatus(status)} className="border border-gray-700 px-3 py-2 text-xs text-gray-200">{status.replaceAll('_', ' ')}</button>)}
+      </div>
+    </div>
     <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-5"><Metric label="CNIC" value={application.cnic || 'Hidden'} /><Metric label="Phone" value={application.mobile || '—'} /><Metric label="City / district" value={[application.city, application.district].filter(Boolean).join(' / ') || '—'} /><Metric label="Fee / discount" value={`${money(application.application_fee)} / ${money(application.discount_amount)}`} /><Metric label="Paid / balance" value={`${money(application.total_paid)} / ${money(application.balance)}`} /></div>
     {application.address && <p className="text-xs text-gray-400">Address: {application.address}</p>}
     {application.purpose && <p className="text-xs text-gray-400">Purpose: {application.purpose}</p>}
-    <div className="grid gap-4 lg:grid-cols-2"><div><h3 className="mb-2 text-xs font-semibold uppercase text-gray-400">Payment history</h3><PaymentHistory application={application} canManage={canManage} onReverse={onReverse} onPrint={onPrintPayment} /></div>
-      <div><h3 className="mb-2 text-xs font-semibold uppercase text-gray-400">Status history</h3><div className="space-y-2">{application.status_history.map((item) => <div key={item.id} className="border-l border-gray-700 pl-3 text-xs"><p className="text-gray-200">{item.to_status.replaceAll('_', ' ')} <span className="text-gray-500">· {item.changed_at}</span></p><p className="text-gray-500">{item.changed_by_name}{item.remarks ? ` · ${item.remarks}` : ''}</p></div>)}</div></div></div>
+    <div className="space-y-4">
+      <PaymentHistory application={application} canManage={canManage} onReverse={onReverse} onPrint={onPrintPayment} />
+      <section className={`${sectionClass} space-y-3`}>
+        <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-gray-100">Status history</h3><span className="text-xs text-gray-500">{application.status_history.length} updates</span></div>
+        {application.status_history.length > 0
+          ? <ol className="space-y-3">{application.status_history.slice().reverse().map((item) => (
+            <li key={item.id} className="flex gap-3">
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
+              <div className="min-w-0 flex-1 border-b border-gray-800 pb-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-gray-200">{item.from_status ? `${item.from_status.replaceAll('_', ' ')} → ` : 'Application created · '}{item.to_status.replaceAll('_', ' ')}</p>
+                  <time className="text-gray-500">{item.changed_at}</time>
+                </div>
+                <p className="mt-1 text-gray-400">Changed by {item.changed_by_name}</p>
+                {item.remarks && <p className="mt-1 text-gray-500">{item.remarks}</p>}
+              </div>
+            </li>
+          ))}</ol>
+          : <p className="text-sm text-gray-500">No status changes recorded.</p>}
+      </section>
+    </div>
   </section>
+}
+
+function statusBadgeClass(status: SchemeStatus): string {
+  if (status === 'APPROVED' || status === 'COMPLETED') return 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
+  if (status === 'REJECTED' || status === 'CANCELLED') return 'border-red-900 bg-red-950/40 text-red-300'
+  if (status === 'PENDING_DOCUMENTS') return 'border-amber-900 bg-amber-950/40 text-amber-300'
+  return 'border-brand-800 bg-brand-950/40 text-brand-300'
 }
 
 function PaymentHistory({ application, canManage, onReverse, onPrint }: {
   application: SchemeApplicationDetail; canManage: boolean; onReverse: (id: number) => void; onPrint: (payment: SchemeApplicationDetail['payments'][number]) => void
 }) {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="border-b border-gray-800 text-gray-500"><tr>{['Receipt', 'Date', 'Amount', 'Method', 'Reference', 'State', ''].map((head) => <th key={head} className="px-2 py-2">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-800">{application.payments.map((payment) => <tr key={payment.id}><td className="px-2 py-2 text-brand-300">{payment.receipt_no}</td><td className="px-2 py-2 text-gray-300">{payment.paid_at}</td><td className="px-2 py-2 text-gray-200">{money(payment.amount)}</td><td className="px-2 py-2 text-gray-300">{payment.method}</td><td className="px-2 py-2 text-gray-400">{payment.reference_no || '—'}</td><td className="px-2 py-2 text-gray-300">{payment.reversed ? `Reversed: ${payment.reversal_reason}` : 'Posted'}</td><td className="px-2 py-2"><div className="flex gap-2"><button type="button" onClick={() => onPrint(payment)} className="text-brand-300">Print</button>{canManage && !payment.reversed && <button type="button" onClick={() => onReverse(payment.id)} className="text-red-300">Reverse</button>}</div></td></tr>)}</tbody></table>{application.payments.length === 0 && <p className="py-3 text-xs text-gray-500">No fee payments recorded.</p>}</div>
+  return <section className={`${sectionClass} space-y-3`}>
+    <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-gray-100">Payment history</h3><span className="text-xs text-gray-500">{application.payments.length} records</span></div>
+    {application.payments.length > 0
+      ? <ul className="space-y-2">{application.payments.map((payment) => <li key={payment.id} className="border border-gray-800 bg-gray-950/50 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-sm font-medium text-brand-300">{payment.receipt_no}</p><time className="mt-1 block text-xs text-gray-500">{payment.paid_at}</time></div>
+          <p className="text-base font-semibold text-gray-100">{money(payment.amount)}</p>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+          <p><span className="text-gray-500">Method: </span><span className="text-gray-300">{payment.method}</span></p>
+          <p><span className="text-gray-500">Reference: </span><span className="text-gray-300">{payment.reference_no || '—'}</span></p>
+          <p><span className="text-gray-500">Balance after: </span><span className="text-gray-300">{payment.reversed || payment.balance_after === null ? '—' : money(payment.balance_after)}</span></p>
+          <p><span className="text-gray-500">State: </span><span className={payment.reversed ? 'text-red-300' : 'text-emerald-300'}>{payment.reversed ? 'Reversed' : 'Posted'}</span></p>
+        </div>
+        {payment.reversed && payment.reversal_reason && <p className="mt-2 text-xs text-red-300">Reversal reason: {payment.reversal_reason}</p>}
+        {payment.notes && <p className="mt-2 text-xs text-gray-400">Notes: {payment.notes}</p>}
+        <div className="mt-3 flex gap-3 border-t border-gray-800 pt-2">
+          <button type="button" onClick={() => onPrint(payment)} className="text-xs text-brand-300 hover:text-brand-200">Print receipt</button>
+          {canManage && !payment.reversed && <button type="button" onClick={() => onReverse(payment.id)} className="text-xs text-red-300 hover:text-red-200">Reverse payment</button>}
+        </div>
+      </li>)}</ul>
+      : <p className="text-sm text-gray-500">No fee payments recorded.</p>}
+  </section>
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {

@@ -85,6 +85,17 @@ describe('InventoryService', () => {
     expect(service.products('', true, true)[0].stock_qty).toBe(8)
   })
 
+  it('rejects custom shop-sale items and only accepts stock products', () => {
+    expect(() => SaleCreateSchema.parse({
+      idempotencyKey: '3b65ddda-4ab4-4a0d-aea0-0c3f1e0c22c9',
+      customerId,
+      discount: 0,
+      receivedAmount: 100,
+      paymentMethod: 'CASH',
+      items: [{ customName: 'Custom banner', unitPrice: 100, quantity: 1 }]
+    })).toThrow()
+  })
+
   it('requires product names to be unique without case or surrounding-space differences', () => {
     expect(() => service.createProduct(InventoryProductCreateSchema.parse({
       name: '  a4 paper ', purchasePrice: 70, salePrice: 100, lowStockLevel: 0
@@ -165,6 +176,32 @@ describe('InventoryService', () => {
       items: [{ productId, quantity: 1 }]
     })
     expect(() => service.createSale(creditWithoutCustomer, userId, 'ADMIN')).toThrow('Select a customer')
+  })
+
+  it('requires the delete PIN, restores sold stock, and records the deleted sale', () => {
+    service.createPurchase(InventoryPurchaseCreateSchema.parse({
+      idempotencyKey: '238da5e3-71fe-4a2d-b1bd-7f5b19df2d58',
+      purchaseDate: localDate(), items: [{ productId, quantity: 2, unitCost: 70 }]
+    }), userId)
+    const sale = service.createSale(SaleCreateSchema.parse({
+      idempotencyKey: 'bd5cccb8-f4dc-4b12-a45e-1ebbbcbf1e3f',
+      customerId, discount: 0, receivedAmount: 100, paymentMethod: 'CASH',
+      items: [{ productId, quantity: 1 }]
+    }), userId, 'ADMIN')
+
+    expect(() => service.deleteSale({
+      saleId: sale.id, deletePin: '9999', reason: 'Incorrect item'
+    }, userId)).toThrow('Invalid delete PIN')
+    expect(service.products('', true, false)[0].stock_qty).toBe(1)
+
+    service.deleteSale({
+      saleId: sale.id, deletePin: '1234', reason: 'Incorrect item'
+    }, userId)
+    expect(service.products('', true, false)[0].stock_qty).toBe(2)
+    expect(service.saleDetail(sale.id).status).toBe('RETURNED')
+    expect(db.prepare("SELECT module, reason FROM deleted_entry_logs WHERE module = 'SALES'").get()).toEqual({
+      module: 'SALES', reason: 'Incorrect item'
+    })
   })
 
   it('returns sold items to stock and applies outstanding sale credit before issuing refunds', () => {

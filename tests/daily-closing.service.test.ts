@@ -206,6 +206,24 @@ describe('DailyClosingService', () => {
     }, userId)).toThrow('locked')
   })
 
+  it('reports only issued simple stamps on the issued date and leaves pending stamps out', () => {
+    raw.prepare(`
+      INSERT INTO stamp_paper_transactions
+        (txn_no, bank_employee_name, customer_name, register_no, price, status, created_by, created_at,
+         transaction_id, total_payable_paisa, issue_status, issued_date)
+      VALUES ('ST-ISSUE', 'Bank', 'Issued', 'REG', 100, 'COMPLETED', ?, '2025-01-01 10:00:00',
+        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee401', 10000, 'ISSUED', '2025-01-02'),
+        ('ST-PENDING', 'Bank', 'Pending', 'REG2', 100, 'COMPLETED', ?, '2025-01-02 10:00:00',
+        '8f65b0dd-1a31-4e5d-9eb5-f40ebfaee402', 10000, 'PENDING', NULL)
+    `).run(userId, userId)
+
+    const report = service.report(reportDate)
+    expect(report.modules.find(({ key }) => key === 'stampPaper')).toMatchObject({
+      transactionCount: 1,
+      grossAmount: 100
+    })
+  })
+
   it('suggests the previous day counted cash without saving it as the next opening', () => {
     service.close('2025-01-01', 100, 425, userId)
 

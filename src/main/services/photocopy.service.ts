@@ -28,7 +28,7 @@ export class PhotocopyService {
       const existing = this.repository.findByKey(input.idempotencyKey)
       if (existing) return existing
       const date = new Date()
-      const isoDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+      const isoDate = input.entryDate || `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
       this.ensureDayOpen(isoDate)
       const receiptNumber = this.repository.nextReceipt(isoDate.replace(/-/g, ''))
       const id = this.repository.create(input, receiptNumber, user.id, total)

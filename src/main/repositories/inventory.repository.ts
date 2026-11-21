@@ -162,40 +162,49 @@ export class InventoryRepository {
   insertSale(input: {
     invoiceNo: string; idempotencyKey: string; customerId?: number | null
     subtotal: number; discount: number; total: number; receivedAmount: number; status: 'COMPLETED' | 'PARTIAL'
-    createdBy: number
+    workStatus: 'PENDING' | 'COMPLETED'; saleNote?: string; mobile?: string; entryDate?: string; createdBy: number
   }): number {
     return Number(this.db.prepare(`
       INSERT INTO sales (invoice_no, idempotency_key, customer_id, subtotal, discount, total,
-        received_amount, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        received_amount, status, work_status, sale_note, mobile, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'), ?)
     `).run(input.invoiceNo, input.idempotencyKey, input.customerId ?? null, input.subtotal,
-      input.discount, input.total, input.receivedAmount, input.status, input.createdBy).lastInsertRowid)
+      input.discount, input.total, input.receivedAmount, input.status,
+      input.workStatus, input.saleNote || null, input.mobile || null,
+      `${input.entryDate || new Date().toISOString().slice(0, 10)} 12:00:00`, input.createdBy).lastInsertRowid)
   }
 
-  insertSaleItem(saleId: number, productId: number, quantity: number,
-    unitPrice: number, unitCost: number, lineTotal: number): void {
+  insertSaleItem(saleId: number, productId: number | null, quantity: number,
+    unitPrice: number, unitCost: number, lineTotal: number,
+    sourceType: 'STOCK' | 'CUSTOM' = 'STOCK', itemName?: string, extraDetails?: string): void {
     this.db.prepare(`
-      INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, unit_cost, line_total)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(saleId, productId, quantity, unitPrice, unitCost, lineTotal)
+      INSERT INTO sale_items (
+        sale_id, product_id, quantity, unit_price, unit_cost, line_total,
+        source_type, item_name, extra_details
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(saleId, productId, quantity, unitPrice, unitCost, lineTotal,
+      sourceType, itemName || null, extraDetails || null)
   }
 
   insertPayment(input: {
     saleId: number; receiptNo: string; amount: number; method: string; idempotencyKey: string
-    balanceAfter: number; createdBy: number
+    balanceAfter: number; createdBy: number; entryDate?: string
   }): void {
     this.db.prepare(`
-      INSERT INTO payments (receipt_no, sale_id, amount, method, created_by, idempotency_key, balance_after)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO payments (receipt_no, sale_id, amount, method, created_by, idempotency_key, balance_after, paid_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'))
     `).run(input.receiptNo, input.saleId, input.amount, input.method, input.createdBy,
-      input.idempotencyKey, input.balanceAfter)
+      input.idempotencyKey, input.balanceAfter,
+      `${input.entryDate || new Date().toISOString().slice(0, 10)} 12:00:00`)
   }
 
-  insertUdhaar(customerId: number, saleId: number, amount: number, idempotencyKey: string, userId: number): void {
+  insertUdhaar(customerId: number, saleId: number, amount: number, idempotencyKey: string,
+    userId: number, entryDate?: string): void {
     this.db.prepare(`
       INSERT INTO udhaar_entries (customer_id, sale_id, type, amount, note, entry_date, created_by, idempotency_key)
-      VALUES (?, ?, 'CHARGE', ?, 'Sale credit', date('now','localtime'), ?, ?)
-    `).run(customerId, saleId, amount, userId, idempotencyKey)
+      VALUES (?, ?, 'CHARGE', ?, 'Sale credit', ?, ?, ?)
+    `).run(customerId, saleId, amount, entryDate || new Date().toISOString().slice(0, 10), userId, idempotencyKey)
   }
 
   saleForReturn(saleId: number): {
@@ -305,6 +314,61 @@ export class InventoryRepository {
     this.db.prepare("UPDATE sales SET status = 'RETURNED' WHERE id = ?").run(saleId)
   }
 
+  markSaleWorkCompleted(saleId: number): void {
+    const result = this.db.prepare(
+      "UPDATE sales SET work_status = 'COMPLETED' WHERE id = ?"
+    ).run(saleId)
+    if (!result.changes) throw new Error('Sale not found')
+  }
+
+  deleteSale(saleId: number, userId: number, reason: string): void {
+    const sale = this.db.prepare(`
+      SELECT s.id, s.invoice_no, s.total, s.received_amount,
+        COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = s.id), 0) AS allocated,
+        COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
+          WHERE u.sale_id = s.id AND u.type = 'REPAYMENT'), 0) AS repayments,
+        (SELECT method FROM payments WHERE sale_id = s.id ORDER BY id LIMIT 1) AS payment_method
+      FROM sales s WHERE s.id = ?
+    `).get(saleId) as {
+      id: number; invoice_no: string; total: number; received_amount: number;
+      allocated: number; repayments: number; payment_method: string | null
+    } | undefined
+    if (!sale) throw new Error('Sale not found')
+
+    const stockLines = this.db.prepare(`
+      SELECT si.id, si.product_id, si.quantity
+      FROM sale_items si
+      WHERE si.sale_id = ? AND si.source_type = 'STOCK'
+    `).all(saleId) as Array<{ id: number; product_id: number; quantity: number }>
+
+    for (const line of stockLines) {
+      this.changeStock(line.product_id, line.quantity)
+      this.insertMovement(line.product_id, 'RETURN', line.quantity, 'SALE_DELETE', saleId,
+        `Restored deleted sale ${sale.invoice_no}; ${reason}`, userId)
+    }
+
+    const refundedAmount = Math.min(sale.total, sale.received_amount + sale.allocated + sale.repayments)
+    const refundMethod = sale.payment_method || (refundedAmount > 0 ? 'UDHAAR_ADJUST' : 'CASH')
+    this.db.prepare(`
+      INSERT INTO sale_returns (
+        sale_id, idempotency_key, return_amount, refund_amount, refund_method, reason, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(saleId, `SALE_DELETE:${saleId}`, sale.total, refundMethod === 'UDHAAR_ADJUST' ? 0 : refundedAmount,
+      refundMethod, reason, userId)
+
+    this.db.prepare('DELETE FROM udhaar_sale_allocations WHERE sale_id = ?').run(saleId)
+    this.db.prepare("DELETE FROM udhaar_entries WHERE sale_id = ?").run(saleId)
+    this.db.prepare('DELETE FROM payments WHERE sale_id = ?').run(saleId)
+    this.db.prepare(`
+      UPDATE sales SET status = 'RETURNED', work_status = 'COMPLETED', received_amount = 0
+      WHERE id = ?
+    `).run(saleId)
+    this.db.prepare(`
+      INSERT INTO deleted_entry_logs (module, item_details, original_amount, deleted_by, reason)
+      VALUES ('SALES', ?, ?, ?, ?)
+    `).run(sale.invoice_no, sale.total, userId, reason)
+  }
+
   saleByKey(key: string): (SaleDetail & { customer_id: number | null; payment_method: string | null }) | undefined {
     const row = this.db.prepare(`
       SELECT s.id, s.invoice_no, s.customer_id, c.name AS customer_name, c.phone AS customer_phone,
@@ -313,7 +377,7 @@ export class InventoryRepository {
           - COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = s.id), 0)
           - COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
             WHERE u.sale_id = s.id AND u.type = 'REPAYMENT'), 0)) AS balance,
-        s.status, s.created_at, u.name AS created_by_name, NULL AS note,
+        s.status, COALESCE(s.work_status, 'COMPLETED') AS work_status, s.created_at, u.name AS created_by_name, NULL AS note,
         (SELECT method FROM payments WHERE sale_id = s.id ORDER BY id LIMIT 1) AS payment_method
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
       JOIN users u ON u.id = s.created_by WHERE s.idempotency_key = ?
@@ -347,7 +411,7 @@ export class InventoryRepository {
           - COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = s.id), 0)
           - COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
             WHERE u.sale_id = s.id AND u.type = 'REPAYMENT'), 0)) AS balance,
-        s.status, s.created_at,
+        s.status, COALESCE(s.work_status, 'COMPLETED') AS work_status, s.created_at,
         u.name AS created_by_name
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id JOIN users u ON u.id = s.created_by
       WHERE (? = '%%' OR s.invoice_no LIKE ? OR COALESCE(c.name, '') LIKE ?)
@@ -365,7 +429,7 @@ export class InventoryRepository {
           - COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = s.id), 0)
           - COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
             WHERE u.sale_id = s.id AND u.type = 'REPAYMENT'), 0)) AS balance,
-        s.status, s.created_at, u.name AS created_by_name,
+        s.status, COALESCE(s.work_status, 'COMPLETED') AS work_status, s.created_at, u.name AS created_by_name,
         (SELECT note FROM udhaar_entries WHERE sale_id = s.id AND type = 'CHARGE' LIMIT 1) AS note
       FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
       JOIN users u ON u.id = s.created_by WHERE s.id = ?

@@ -53,10 +53,19 @@ export type InventoryAdjustmentCreate = z.infer<typeof InventoryAdjustmentCreate
 export const SaleCreateSchema = z.object({
   idempotencyKey: z.string().uuid(),
   customerId: positiveId.nullable().optional(),
+  customerName: optionalText(120),
+  mobile: optionalText(30),
   discount: amount,
   receivedAmount: amount,
   paymentMethod: z.enum(['CASH', 'BANK', 'EASYPAISA', 'JAZZCASH']),
-  items: z.array(z.object({ productId: positiveId, quantity })).min(1).max(200)
+  workStatus: z.enum(['PENDING', 'COMPLETED']).optional().default('COMPLETED'),
+  saleNote: optionalText(500),
+  entryDate: isoDate.optional(),
+  items: z.array(z.object({
+    productId: positiveId,
+    extraDetails: optionalText(500),
+    quantity
+  })).min(1).max(200)
 })
 export type SaleCreate = z.infer<typeof SaleCreateSchema>
 
@@ -65,6 +74,20 @@ export const SaleSearchSchema = z.object({
   fromDate: isoDate.optional(),
   toDate: isoDate.optional()
 })
+
+export const SaleDeleteSchema = z.object({
+  saleId: positiveId,
+  deletePin: z.string().trim().min(4).max(12),
+  reason: z.string().trim().min(2).max(300)
+})
+export type SaleDelete = z.infer<typeof SaleDeleteSchema>
+
+export const SaleEditSchema = SaleCreateSchema.extend({
+  saleId: positiveId,
+  deletePin: z.string().trim().min(4).max(12),
+  reason: z.string().trim().min(2).max(300)
+})
+export type SaleEdit = z.infer<typeof SaleEditSchema>
 
 export const SaleReturnCreateSchema = z.object({
   saleId: positiveId,
@@ -134,6 +157,7 @@ export type SaleRow = {
   received_amount: number
   balance: number
   status: 'COMPLETED' | 'PARTIAL' | 'RETURNED'
+  work_status: 'PENDING' | 'COMPLETED'
   created_at: string
   created_by_name: string
 }

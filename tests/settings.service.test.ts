@@ -57,7 +57,9 @@ describe('SettingsService', () => {
     expect(service.getSettings()).toEqual({
       shop_name: 'New Shop',
       receipt_width_mm: '58',
-      max_cashier_discount_percent: '10'
+      max_cashier_discount_percent: '10',
+      login_pin: '1234',
+      delete_pin: '1234'
     })
     const audit = raw.prepare(
       "SELECT action, entity, details FROM audit_logs WHERE action = 'SETTINGS_CHANGED'"

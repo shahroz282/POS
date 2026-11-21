@@ -22,6 +22,8 @@ export class StampPaperRepository {
     return `
       SELECT s.id, s.transaction_id, s.txn_no AS invoice_number, s.created_at AS transaction_date,
         COALESCE(s.reference_name, '') AS reference_name, s.ticket_number, s.has_ticket_number, s.customer_name,
+        s.department, s.quantity_100, s.quantity_200, s.quantity_300,
+        s.commission_paisa, s.commission_label, s.issue_status, s.issued_date,
         s.register_no AS registration, s.status, s.sale_price_paisa, s.service_charges_paisa,
         s.other_fees_paisa, s.total_payable_paisa,
         MAX(0, COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = s.id), 0)
@@ -36,6 +38,9 @@ export class StampPaperRepository {
 
   insertSimpleSale(input: {
     transactionId: string; idempotencyKey: string; invoiceNumber: string; referenceName: string; hasTicketNumber: boolean;
+    entryDate?: string;
+    department?: string; quantity100?: number; quantity200?: number; quantity300?: number;
+    issueStatus?: 'PENDING' | 'ISSUED'; commissionPaisa?: number; commissionLabel?: string;
     customerName: string; registration: string; status: string; salePricePaisa: number;
     serviceChargesPaisa: number; otherFeesPaisa: number; totalPayablePaisa: number;
     amountReceivedPaisa: number; paymentMethod: string; paymentReferenceNumber?: string;
@@ -45,12 +50,19 @@ export class StampPaperRepository {
       INSERT INTO stamp_paper_transactions (
         txn_no, transaction_id, idempotency_key, reference_name, ticket_number, has_ticket_number, bank_employee_name, customer_name,
         register_no, price, sale_price_paisa, service_charges_paisa, other_fees_paisa,
-        total_payable_paisa, status, remarks, created_by
-      ) VALUES (?, ?, ?, ?, NULL, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        total_payable_paisa, status, remarks, department, quantity_100, quantity_200, quantity_300,
+        commission_paisa, commission_label, issue_status, issued_date, created_at, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'), ?)
     `).run(input.invoiceNumber, input.transactionId, input.idempotencyKey, input.referenceName,
-      input.hasTicketNumber ? 1 : 0, input.customerName, input.registration, Math.round(input.salePricePaisa / 100),
+      null, input.hasTicketNumber ? 1 : 0, '', input.customerName, input.registration,
+      Math.round(input.salePricePaisa / 100),
       input.salePricePaisa, input.serviceChargesPaisa, input.otherFeesPaisa, input.totalPayablePaisa,
-      input.status, input.remarks || null, input.createdBy)
+      input.status, input.remarks || null, input.department || null,
+      input.quantity100 || 0, input.quantity200 || 0, input.quantity300 || 0,
+      input.commissionPaisa || 0, input.commissionLabel || null,
+      input.issueStatus || 'PENDING', input.issueStatus === 'ISSUED'
+        ? (input.entryDate || new Date().toISOString().slice(0, 10)) : null,
+      `${input.entryDate || new Date().toISOString().slice(0, 10)} 12:00:00`, input.createdBy)
     const stampId = Number(result.lastInsertRowid)
     if (input.amountReceivedPaisa > 0) {
       this.insertSimplePayment({
@@ -60,7 +72,8 @@ export class StampPaperRepository {
         method: input.paymentMethod,
         referenceNumber: input.paymentReferenceNumber,
         remarks: input.paymentRemarks,
-        createdBy: input.createdBy
+        createdBy: input.createdBy,
+        entryDate: input.entryDate
       })
     }
     return stampId
@@ -68,6 +81,16 @@ export class StampPaperRepository {
 
   findSimpleSaleByKey(key: string): SimpleStampSaleRow | undefined {
     return this.db.prepare(`${this.simpleSaleSelect()} AND s.idempotency_key = ?`).get(key) as unknown as SimpleStampSaleRow | undefined
+  }
+
+  markSimpleSaleIssued(stampId: number, issuedDate?: string): void {
+    const result = this.db.prepare(`
+      UPDATE stamp_paper_transactions
+      SET issue_status = 'ISSUED',
+          issued_date = COALESCE(?, date('now','localtime'))
+      WHERE id = ? AND transaction_id IS NOT NULL
+    `).run(issuedDate || null, stampId)
+    if (!result.changes) throw new Error('Stamp ledger transaction not found')
   }
 
   listSimpleSales(query: string, fromDate?: string, toDate?: string): SimpleStampSaleRow[] {
@@ -106,6 +129,36 @@ export class StampPaperRepository {
     return { ...sale, payments, documents, refunds }
   }
 
+  updateSimpleSale(input: {
+    stampId: number; referenceName: string; department?: string; hasTicketNumber: boolean;
+    customerName: string; registration: string; status: 'PENDING' | 'COMPLETED';
+    salePricePaisa: number; serviceChargesPaisa: number; totalPayablePaisa: number;
+    commissionLabel?: string; remarks?: string
+  }): void {
+    const sale = this.db.prepare(`
+      SELECT s.status, COALESCE(SUM(p.amount_paisa), 0) AS paid_paisa
+      FROM stamp_paper_transactions s
+      LEFT JOIN stamp_transaction_payments p ON p.stamp_id = s.id
+      WHERE s.id = ? AND s.transaction_id IS NOT NULL
+      GROUP BY s.id
+    `).get(input.stampId) as { status: string; paid_paisa: number } | undefined
+    if (!sale || sale.status === 'CANCELLED') throw new Error('Active stamp paper transaction not found')
+    if (input.totalPayablePaisa < sale.paid_paisa) {
+      throw new Error('Total payable cannot be less than payments already recorded')
+    }
+
+    this.db.prepare(`
+      UPDATE stamp_paper_transactions
+      SET reference_name = ?, department = ?, has_ticket_number = ?, customer_name = ?,
+        register_no = ?, status = ?, sale_price_paisa = ?, price = ?, service_charges_paisa = ?,
+        total_payable_paisa = ?, commission_paisa = ?, commission_label = ?, remarks = ?
+      WHERE id = ? AND transaction_id IS NOT NULL
+    `).run(input.referenceName, input.department || null, input.hasTicketNumber ? 1 : 0,
+      input.customerName, input.registration, input.status, input.salePricePaisa,
+      Math.round(input.salePricePaisa / 100), input.serviceChargesPaisa, input.totalPayablePaisa,
+      input.serviceChargesPaisa, input.commissionLabel || null, input.remarks || null, input.stampId)
+  }
+
   findSimpleRefundByKey(key: string): number | undefined {
     const row = this.db.prepare('SELECT stamp_id FROM simple_stamp_refunds WHERE idempotency_key = ?')
       .get(key) as { stamp_id: number } | undefined
@@ -126,13 +179,14 @@ export class StampPaperRepository {
 
   insertSimplePayment(input: {
     stampId: number; receiptNumber: string; amountPaisa: number; method: string;
-    referenceNumber?: string; remarks?: string; createdBy: number
+    referenceNumber?: string; remarks?: string; createdBy: number; entryDate?: string
   }): void {
     this.db.prepare(`
-      INSERT INTO stamp_transaction_payments (stamp_id, receipt_number, amount_paisa, method, reference_number, remarks, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO stamp_transaction_payments (stamp_id, receipt_number, amount_paisa, method, reference_number, remarks, created_by, paid_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'))
     `).run(input.stampId, input.receiptNumber, input.amountPaisa, input.method,
-      input.referenceNumber || null, input.remarks || null, input.createdBy)
+      input.referenceNumber || null, input.remarks || null, input.createdBy,
+      `${input.entryDate || new Date().toISOString().slice(0, 10)} 12:00:00`)
   }
 
   insertSimpleDocument(input: {
@@ -262,13 +316,14 @@ export class StampPaperRepository {
 
   insertPayment(input: {
     saleId: number; receiptNumber: string; amountPaisa: number; method: string;
-    reference?: string; remarks?: string; createdBy: number
+    reference?: string; remarks?: string; createdBy: number; entryDate?: string
   }): void {
     this.db.prepare(`
-      INSERT INTO stamp_paper_payments (sale_id, receipt_number, amount_paisa, method, reference_number, remarks, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO stamp_paper_payments (sale_id, receipt_number, amount_paisa, method, reference_number, remarks, created_by, paid_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'))
     `).run(input.saleId, input.receiptNumber, input.amountPaisa, input.method,
-      input.reference || null, input.remarks || null, input.createdBy)
+      input.reference || null, input.remarks || null, input.createdBy,
+      `${input.entryDate || new Date().toISOString().slice(0, 10)} 12:00:00`)
   }
 
   insertRefund(input: { saleId: number; amountPaisa: number; method: string; reason: string; createdBy: number }): void {

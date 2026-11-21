@@ -3,7 +3,7 @@ import type { IpcResult } from '@shared/types'
 import {
   InventoryAdjustmentCreateSchema, InventoryProductCreateSchema,
   InventoryProductUpdateSchema, InventoryPurchaseCreateSchema, InventorySearchSchema,
-  InventorySupplierCreateSchema, SaleCreateSchema, SaleReturnCreateSchema, SaleSearchSchema
+  InventorySupplierCreateSchema, SaleCreateSchema, SaleDeleteSchema, SaleReturnCreateSchema, SaleSearchSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
 import { getCurrentUser } from '../services/session'
@@ -109,5 +109,21 @@ export function registerInventoryHandlers(): void {
     const parsed = SaleReturnCreateSchema.safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)
     return new InventoryService(getDb()).createSaleReturn(parsed.data, userId, role)
+  }))
+  ipcMain.handle('sales:work-status', (_event, rawInput: unknown) => authenticated((_userId, role) => {
+    requireManager(role)
+    if (!rawInput || typeof rawInput !== 'object' ||
+      typeof (rawInput as { saleId?: unknown }).saleId !== 'number') {
+      throw new Error('Select a valid sale')
+    }
+    new InventoryService(getDb()).markSaleWorkCompleted((rawInput as { saleId: number }).saleId)
+    return null
+  }))
+  ipcMain.handle('sales:delete', (_event, rawInput: unknown) => authenticated((userId, role) => {
+    requireManager(role)
+    const parsed = SaleDeleteSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    new InventoryService(getDb()).deleteSale(parsed.data, userId)
+    return null
   }))
 }

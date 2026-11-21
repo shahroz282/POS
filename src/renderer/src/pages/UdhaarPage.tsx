@@ -250,8 +250,8 @@ export default function UdhaarPage() {
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-gray-100">Udhaar ledger</h1>
-          <p className="mt-1 text-sm text-gray-500">Track customer credit, repayments, and outstanding balances.</p>
+          <h1 className="text-xl font-semibold text-gray-100">Udhaar / Pending</h1>
+          <p className="mt-1 text-sm text-gray-500">Track customer credit, repayments, unpaid shop sales, stamp balances, and outstanding records.</p>
         </div>
         <button type="button" onClick={() => openMode('customer')} className="bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500">
           + Add customer

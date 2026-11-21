@@ -17,12 +17,14 @@ export class SettingsService {
   }
 
   /** Get values displayed in the Admin Settings page. */
-  getSettings(): { shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string } {
+  getSettings(): { shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string; login_pin: string; delete_pin: string } {
     return this.settingsRepo.getMultiple([
       'shop_name',
       'receipt_width_mm',
-      'max_cashier_discount_percent'
-    ]) as { shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string }
+      'max_cashier_discount_percent',
+      'login_pin',
+      'delete_pin'
+    ]) as { shop_name: string; receipt_width_mm: string; max_cashier_discount_percent: string; login_pin: string; delete_pin: string }
   }
 
   /** Update settings (admin only — permission checked in IPC handler). */
@@ -46,6 +48,16 @@ export class SettingsService {
         if (old !== String(input.max_cashier_discount_percent)) {
           changes.push(`max_cashier_discount_percent: ${old} → ${input.max_cashier_discount_percent}`)
         }
+      }
+      if (input.login_pin !== undefined) {
+        const old = this.settingsRepo.get('login_pin')
+        this.settingsRepo.set('login_pin', input.login_pin)
+        if (old !== input.login_pin) changes.push('login_pin changed')
+      }
+      if (input.delete_pin !== undefined) {
+        const old = this.settingsRepo.get('delete_pin')
+        this.settingsRepo.set('delete_pin', input.delete_pin)
+        if (old !== input.delete_pin) changes.push('delete_pin changed')
       }
 
       if (changes.length > 0) {

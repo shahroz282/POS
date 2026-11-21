@@ -73,7 +73,7 @@ export default function AdmissionsPage() {
 
   const [studentForm, setStudentForm] = useState({
     fullName: '', fatherName: '', fatherCnic: '', bFormNumber: '', phone: '', fatherPhone: '',
-    whatsapp: '', dateOfBirth: '', gender: '', address: '', classId: '',
+    dateOfBirth: '', gender: '', address: '', classId: '',
     admissionDate: today(), program: '', educationBoard: '', subjects: '', admissionFee: '0',
     admissionDiscount: '0', admissionFeeDueDate: ''
   })
@@ -200,7 +200,7 @@ export default function AdmissionsPage() {
     await openAdmission(result.data.admissionId)
     setStudentForm((current) => ({
       ...current, fullName: '', fatherName: '', fatherCnic: '', bFormNumber: '', phone: '',
-      fatherPhone: '', whatsapp: '', dateOfBirth: '', gender: '', address: '',
+      fatherPhone: '', dateOfBirth: '', gender: '', address: '',
       program: '', educationBoard: '', admissionFee: '0', admissionDiscount: '0',
       subjects: '', admissionFeeDueDate: ''
     }))
@@ -400,7 +400,6 @@ export default function AdmissionsPage() {
             <Field label="B-Form number (optional)"><input className={inputClass} value={studentForm.bFormNumber} onChange={(event) => updateStudentField('bFormNumber', event.target.value)} /></Field>
             <Field label="Student contact"><input className={inputClass} value={studentForm.phone} onChange={(event) => updateStudentField('phone', event.target.value)} /></Field>
             <Field label="Father contact"><input className={inputClass} value={studentForm.fatherPhone} onChange={(event) => updateStudentField('fatherPhone', event.target.value)} /></Field>
-            <Field label="WHATSAPP NUMBER (OPTIONAL)"><input className={inputClass} value={studentForm.whatsapp} onChange={(event) => updateStudentField('whatsapp', event.target.value)} /></Field>
             <Field label="Date of birth"><CalendarDateInput value={studentForm.dateOfBirth} onChange={(value) => updateStudentField('dateOfBirth', value)} /></Field>
             <Field label="Gender"><select className={inputClass} value={studentForm.gender} onChange={(event) => updateStudentField('gender', event.target.value)}><option value="">Not specified</option><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></Field>
             <Field label="RESIDENTIAL ADDRESS (OPTIONAL)"><input className={inputClass} value={studentForm.address} onChange={(event) => updateStudentField('address', event.target.value)} /></Field>
@@ -531,28 +530,11 @@ function StudentTable({ students, onManageFees }: {
         <td className={`px-2 py-3 ${student.balance > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{formatMoney(student.balance)}</td>
         <td className="space-y-1 px-2 py-3 print:hidden">
           <button type="button" onClick={() => onManageFees(student.admission_id)} className="whitespace-nowrap border border-brand-700 px-2.5 py-1.5 font-medium text-brand-300 hover:bg-brand-950">Manage</button>
-          {whatsAppUrl(student) && <a className="block whitespace-nowrap px-2.5 py-1 text-emerald-300 hover:text-emerald-200" href={whatsAppUrl(student)!} target="_blank" rel="noreferrer">WhatsApp</a>}
         </td>
       </tr>)}</tbody>
     </table>
     {students.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No students found.</p>}
   </div>
-}
-
-function whatsAppUrl(student: AdmissionStudentRow): string | null {
-  const rawPhone = student.whatsapp || student.father_phone || student.phone
-  if (!rawPhone) return null
-  let number = rawPhone.replace(/\D/g, '')
-  if (number.startsWith('0')) number = `92${number.slice(1)}`
-  if (number.length < 7 || number.length > 15) return null
-  const slipMessage: Record<AdmissionStudentRow['slip_status'], string> = {
-    PENDING: 'being processed',
-    READY_TO_CALL: 'ready for collection',
-    CALLED_INFORMED: 'ready for collection; we have already tried to inform you',
-    SLIP_DELIVERED: 'issued and delivered'
-  }
-  const message = `Assalamu Alaikum ${student.father_name}, the roll number slip for ${student.full_name} is ${slipMessage[student.slip_status]}. Please contact the school for details.`
-  return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
 }
 
 function SlipWorkflow({ admission, canManage, onSaved, onError }: {
@@ -584,7 +566,6 @@ function SlipWorkflow({ admission, canManage, onSaved, onError }: {
     await onSaved()
   }
 
-  const reminder = whatsAppUrl(admission)
   return <section className={`${sectionClass} space-y-4`}>
     <div>
       <h3 className="text-sm font-semibold text-gray-100">Roll number & slip workflow</h3>
@@ -604,9 +585,6 @@ function SlipWorkflow({ admission, canManage, onSaved, onError }: {
       <p>Registration no.: {admission.registration_number || '—'}</p>
       <p>Expected date: {admission.expected_slip_date || '—'}</p><p>Status: {admission.slip_status.replaceAll('_', ' ')}</p>
     </div>}
-    {reminder && <a href={reminder} target="_blank" rel="noreferrer" className="inline-flex border border-emerald-800 px-3 py-2 text-xs text-emerald-300 hover:bg-emerald-950/40">
-      Prepare WhatsApp reminder
-    </a>}
   </section>
 }
 

@@ -17,6 +17,7 @@ import {
   StampSalesSearchSchema,
   SimpleStampPaymentCreateSchema,
   SimpleStampSaleCreateSchema,
+  SimpleStampSaleUpdateSchema,
   SimpleStampRefundCreateSchema
 } from '@shared/schemas'
 import { getDb } from '../db/connection'
@@ -149,6 +150,12 @@ export function registerStampPaperHandlers(): void {
     return getService().createSimpleSale(parsed.data)
   }))
 
+  ipcMain.handle('simple-stamp:update', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = SimpleStampSaleUpdateSchema.safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    return getService().updateSimpleSale(parsed.data)
+  }))
+
   ipcMain.handle('simple-stamp:list', (_event, rawInput: unknown) => authenticated(() => {
     const parsed = StampSalesSearchSchema.safeParse(rawInput ?? {})
     if (!parsed.success) throw new Error(parsed.error.message)
@@ -177,6 +184,13 @@ export function registerStampPaperHandlers(): void {
     const parsed = SimpleStampRefundCreateSchema.safeParse(rawInput)
     if (!parsed.success) throw new Error(parsed.error.message)
     return getService().cancelSimpleSale(parsed.data, role)
+  }))
+
+  ipcMain.handle('simple-stamp:issue', (_event, rawInput: unknown) => authenticated(() => {
+    const parsed = z.object({ stampId: z.number().int().positive() }).safeParse(rawInput)
+    if (!parsed.success) throw new Error(parsed.error.message)
+    getService().markSimpleSaleIssued(parsed.data.stampId)
+    return null
   }))
 
   ipcMain.handle('simple-stamp:export-excel', async (_event, rawContent: unknown) => {

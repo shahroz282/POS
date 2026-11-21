@@ -15,16 +15,28 @@ export class DailyClosingRepository {
   report(fromDate: string, toDate = fromDate): DailyClosingReport {
     const sales = this.db.prepare(`
       SELECT COUNT(*) AS count, COALESCE(SUM(total), 0) AS gross,
-        COALESCE((SELECT SUM(amount) FROM payments WHERE sale_id IS NOT NULL AND date(paid_at) BETWEEN ? AND ? AND method = 'CASH'), 0) AS cash,
-        COALESCE((SELECT SUM(amount) FROM payments WHERE sale_id IS NOT NULL AND date(paid_at) BETWEEN ? AND ? AND method != 'CASH'), 0) AS noncash,
-        COALESCE((SELECT SUM(refund_amount) FROM sale_returns WHERE date(created_at) BETWEEN ? AND ?
-          AND refund_method IN ('CASH','BANK','EASYPAISA','JAZZCASH')), 0) AS refunds,
+        0 AS cash, 0 AS noncash, 0 AS refunds,
         COALESCE(SUM(MAX(0, total - received_amount
           - COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = sales.id), 0)
           - COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
             WHERE u.sale_id = sales.id AND u.type = 'REPAYMENT'), 0))), 0) AS outstanding
       FROM sales WHERE date(created_at) BETWEEN ? AND ?
-    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
+    `).get(fromDate, toDate) as TotalRow
+    sales.cash = this.sum(`
+      SELECT COALESCE(SUM(p.amount), 0) AS amount FROM payments p JOIN sales s ON s.id = p.sale_id
+      WHERE p.sale_id IS NOT NULL AND s.status != 'RETURNED'
+        AND date(p.paid_at) BETWEEN ? AND ? AND p.method = 'CASH'
+    `, fromDate, toDate)
+    sales.noncash = this.sum(`
+      SELECT COALESCE(SUM(p.amount), 0) AS amount FROM payments p JOIN sales s ON s.id = p.sale_id
+      WHERE p.sale_id IS NOT NULL AND s.status != 'RETURNED'
+        AND date(p.paid_at) BETWEEN ? AND ? AND p.method != 'CASH'
+    `, fromDate, toDate)
+    sales.refunds = this.sum(`
+      SELECT COALESCE(SUM(refund_amount), 0) AS amount FROM sale_returns
+      WHERE date(created_at) BETWEEN ? AND ?
+        AND refund_method IN ('CASH','BANK','EASYPAISA','JAZZCASH')
+    `, fromDate, toDate)
 
     const admissions = this.db.prepare(`
       SELECT COUNT(*) AS count,
@@ -201,7 +213,10 @@ export class DailyClosingRepository {
           WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method != 'CASH'), 0) AS noncash,
         COALESCE(SUM(MAX(0, total_payable_paisa -
           COALESCE((SELECT SUM(p.amount_paisa) FROM stamp_transaction_payments p WHERE p.stamp_id = stamp_paper_transactions.id), 0))), 0) / 100.0 AS outstanding
-      FROM stamp_paper_transactions WHERE date(created_at) BETWEEN ? AND ? AND status != 'CANCELLED'
+      FROM stamp_paper_transactions
+      WHERE date(COALESCE(issued_date, created_at)) BETWEEN ? AND ?
+        AND status != 'CANCELLED'
+        AND (issue_status = 'ISSUED' OR transaction_id IS NULL)
     `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
     const legacyRefunds = this.sum(`
       SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_refunds
@@ -222,18 +237,22 @@ export class DailyClosingRepository {
   }
 
   private photocopyTotals(fromDate: string, toDate: string): TotalRow {
-    return this.db.prepare(`
+    const totals = this.db.prepare(`
         SELECT COUNT(*) AS count, COALESCE(SUM(s.total_amount), 0) AS gross,
           COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p
             WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method = 'CASH'), 0) AS cash,
           COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p
             WHERE date(p.paid_at) BETWEEN ? AND ? AND p.method != 'CASH'), 0) AS noncash,
-          COALESCE((SELECT SUM(r.amount) FROM photocopy_refunds r
-            WHERE date(r.created_at) BETWEEN ? AND ?), 0) AS refunds,
+          0 AS refunds,
           COALESCE(SUM(MAX(0, s.total_amount -
             COALESCE((SELECT SUM(p.amount) FROM photocopy_payments p WHERE p.sale_id = s.id), 0))), 0) AS outstanding
         FROM photocopy_sales s WHERE date(s.created_at) BETWEEN ? AND ? AND s.status != 'CANCELLED'
-    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
+    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate) as TotalRow
+    totals.refunds = this.sum(`
+      SELECT COALESCE(SUM(amount), 0) AS amount FROM photocopy_refunds
+      WHERE date(created_at) BETWEEN ? AND ?
+    `, fromDate, toDate)
+    return totals
   }
 
   private cashRefunds(fromDate: string, toDate: string): number {

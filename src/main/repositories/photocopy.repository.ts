@@ -5,18 +5,22 @@ export class PhotocopyRepository {
   constructor(private readonly db: DB) {}
 
   create(input: PhotocopyCreate, receiptNumber: string, userId: number, total: number): number {
+    const now = new Date()
+    const localDate = input.entryDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     const result = this.db.prepare(`
       INSERT INTO photocopy_sales (
         receipt_number, idempotency_key, service_type, page_count, copy_count, duplex,
-        unit_price, total_amount, customer_name, reference, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        unit_price, total_amount, customer_name, reference, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'localtime'))
     `).run(receiptNumber, input.idempotencyKey, input.serviceType, input.pageCount, input.copyCount,
-      input.duplex ? 1 : 0, input.unitPrice, total, input.customerName || null, input.reference || null, userId)
+      input.duplex ? 1 : 0, input.unitPrice, total, input.customerName || null, input.reference || null, userId,
+      `${localDate} 12:00:00`)
     const id = Number(result.lastInsertRowid)
     this.db.prepare(`
-      INSERT INTO photocopy_payments (sale_id, receipt_number, amount, method, created_by)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, `${receiptNumber}-P1`, total, input.paymentMethod, userId)
+      INSERT INTO photocopy_payments (sale_id, receipt_number, amount, method, created_by, paid_at)
+      VALUES (?, ?, ?, ?, ?, datetime(?, 'localtime'))
+    `).run(id, `${receiptNumber}-P1`, total, input.paymentMethod, userId,
+      `${localDate} 12:00:00`)
     return id
   }
 

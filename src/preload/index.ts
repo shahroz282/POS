@@ -3,7 +3,7 @@ import type { WindowApi } from '@shared/types'
 import type {
   PingInput, LoginInput, SetupAdminInput, CreateUserInput, UpdateUserRoleInput, DeactivateUserInput,
   ResetPasswordInput, UpdateSettingsInput, StampInventoryCreate, StampPaperSaleCreate, StampPaymentCreate,
-  SimpleStampSaleCreate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate,
+  SimpleStampSaleCreate, SimpleStampSaleUpdate, AdmissionClassCreate, AdmissionPaymentCreate, AdmissionStudentCreate,
   SimpleStampRefundCreate,
   AdmissionSlipUpdate, AdmissionDocumentCategoryType,
   SchemeApplicationCreate, SchemeApplicationStatusUpdate, SchemeCategoryCreate, SchemeCreate,
@@ -13,7 +13,7 @@ import type {
   FilerCustomerCreate, FilerCustomerUpdate, FilerCustomerRow, FilerCustomerPaymentCreate,
   UdhaarCustomerCreate, UdhaarCustomerRow, UdhaarEntryCreate, UdhaarRepaymentCreate,
   InventoryAdjustmentCreate, InventoryProductCreate, InventoryProductUpdate,
-  InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleReturnCreate,
+  InventoryPurchaseCreate, InventorySupplierCreate, SaleCreate, SaleDelete, SaleReturnCreate,
   CashEntryCreate, DailyClosingSave, DailyClosingExpenseCreate, DailyClosingClose, DailyClosingRange, ReportsRange,
   PhotocopyCreate, PhotocopyRefund, PhotocopySearch
 } from '@shared/schemas'
@@ -61,12 +61,14 @@ const api: WindowApi = {
 
   // ── Simple stamp transactions ──────────────────────────────────────────
   simpleStampCreate: (input: SimpleStampSaleCreate) => ipcRenderer.invoke('simple-stamp:create', input),
+  simpleStampUpdate: (input: SimpleStampSaleUpdate) => ipcRenderer.invoke('simple-stamp:update', input),
   simpleStampList: (query?: string, fromDate?: string, toDate?: string) => ipcRenderer.invoke('simple-stamp:list', { query, fromDate, toDate }),
   simpleStampListForExport: (query?: string, fromDate?: string, toDate?: string) =>
     ipcRenderer.invoke('simple-stamp:list-export', { query, fromDate, toDate }),
   simpleStampDetail: (stampId: number) => ipcRenderer.invoke('simple-stamp:detail', { stampId }),
   simpleStampPayment: (input: StampPaymentCreate) => ipcRenderer.invoke('simple-stamp:payment', input),
   simpleStampCancel: (input: SimpleStampRefundCreate) => ipcRenderer.invoke('simple-stamp:cancel', input),
+  simpleStampMarkIssued: (stampId: number) => ipcRenderer.invoke('simple-stamp:issue', { stampId }),
   simpleStampExportExcel: (content: Uint8Array) => ipcRenderer.invoke('simple-stamp:export-excel', content),
   simpleStampDocumentStage: (input: { category: 'SUPPORTING'; originalFilename: string; mimeType: string; contentBase64: string }) => ipcRenderer.invoke('simple-stamp:document-stage', input),
   simpleStampDocumentDiscard: (token: string) => ipcRenderer.invoke('simple-stamp:document-discard', { token }),
@@ -178,6 +180,8 @@ const api: WindowApi = {
     ipcRenderer.invoke('sales:list', { query, fromDate, toDate }),
   salesDetail: (id: number) => ipcRenderer.invoke('sales:detail', { id }),
   salesReturn: (input: SaleReturnCreate) => ipcRenderer.invoke('sales:return', input),
+  salesMarkWorkCompleted: (saleId: number) => ipcRenderer.invoke('sales:work-status', { saleId }),
+  salesDelete: (input: SaleDelete) => ipcRenderer.invoke('sales:delete', input),
   dailyClosingExpenses: () => ipcRenderer.invoke('daily-closing:expenses:list'),
   dailyClosingReport: (range: DailyClosingRange) => ipcRenderer.invoke('daily-closing:report', range),
   dailyClosingSave: (input: DailyClosingSave) => ipcRenderer.invoke('daily-closing:save', input),

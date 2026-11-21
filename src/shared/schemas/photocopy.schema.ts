@@ -2,9 +2,11 @@ import { z } from 'zod'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''))
 const idempotencyKey = z.string().uuid()
+const isoDate = z.string().date()
 
 export const PhotocopyCreateSchema = z.object({
   idempotencyKey,
+  entryDate: isoDate.optional(),
   serviceType: z.enum(['MONO', 'COLOR']),
   pageCount: z.number().int().positive().max(100_000),
   copyCount: z.number().int().positive().max(10_000),

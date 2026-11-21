@@ -67,6 +67,7 @@ export function getAllowedPages(role: Role): AppPageId[] {
   if (role === 'ADMIN') {
     pages.push('filer-customers', 'daily-closing', 'inventory', 'reports')
   }
+  if (role === 'MANAGER') pages.push('daily-closing', 'inventory', 'reports')
   if (Permissions.canManageUsers(role)) pages.push('users')
   if (Permissions.canSettings(role)) pages.push('settings')
   if (Permissions.canBackup(role)) pages.push('backup')

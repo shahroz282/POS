@@ -9,7 +9,7 @@ export type ReportsReport = {
   toDate: string
   role: 'ADMIN' | 'MANAGER' | 'CASHIER'
   modules: Array<{
-    key: 'sales' | 'stampPaper' | 'admissions' | 'schemes' | 'udhaar' | 'photocopy' | 'inventory' | 'cash'
+    key: 'sales' | 'stampPaper' | 'admissions' | 'schemes' | 'udhaar' | 'photocopy' | 'inventory' | 'cash' | 'digital'
     label: string
     transactionCount: number
     grossAmount: number

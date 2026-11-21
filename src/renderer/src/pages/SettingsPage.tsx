@@ -6,6 +6,8 @@ type SettingsForm = {
   shop_name: string
   receipt_width_mm: string
   max_cashier_discount_percent: string
+  login_pin: string
+  delete_pin: string
 }
 
 const inputClass = 'w-full border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 focus:border-brand-500 focus:outline-none'
@@ -16,7 +18,9 @@ function toForm(settings: SettingsRow): SettingsForm {
   return {
     shop_name: settings.shop_name,
     receipt_width_mm: settings.receipt_width_mm,
-    max_cashier_discount_percent: settings.max_cashier_discount_percent
+    max_cashier_discount_percent: settings.max_cashier_discount_percent,
+    login_pin: settings.login_pin ?? '1234',
+    delete_pin: settings.delete_pin ?? '1234'
   }
 }
 
@@ -64,7 +68,9 @@ export default function SettingsPage() {
       const result = await window.api.settingsUpdate({
         shop_name: settings.shop_name.trim(),
         receipt_width_mm: Number(settings.receipt_width_mm),
-        max_cashier_discount_percent: Number(settings.max_cashier_discount_percent)
+        max_cashier_discount_percent: Number(settings.max_cashier_discount_percent),
+        login_pin: settings.login_pin,
+        delete_pin: settings.delete_pin
       })
       if (!result.ok) {
         setError(result.error.message)
@@ -92,6 +98,8 @@ export default function SettingsPage() {
     settings.shop_name !== savedSettings.shop_name
     || settings.receipt_width_mm !== savedSettings.receipt_width_mm
     || settings.max_cashier_discount_percent !== savedSettings.max_cashier_discount_percent
+    || settings.login_pin !== savedSettings.login_pin
+    || settings.delete_pin !== savedSettings.delete_pin
   ))
 
   return (
@@ -171,6 +179,25 @@ export default function SettingsPage() {
                 aria-label="Maximum Cashier discount percentage"
               />
             </label>
+          </section>
+
+          <section className={sectionClass}>
+            <h2 className="text-sm font-semibold text-gray-100">Security PINs</h2>
+            <p className="mt-1 text-xs text-gray-500">Use 4–12 digits. The delete PIN is required for protected sale deletion.</p>
+            <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+              <label>
+                <span className={labelClass}>Login PIN</span>
+                <input type="password" inputMode="numeric" pattern="[0-9]{4,12}" minLength={4} maxLength={12}
+                  className={inputClass} value={settings.login_pin}
+                  onChange={(event) => updateField('login_pin', event.target.value)} />
+              </label>
+              <label>
+                <span className={labelClass}>Delete PIN</span>
+                <input type="password" inputMode="numeric" pattern="[0-9]{4,12}" minLength={4} maxLength={12}
+                  className={inputClass} value={settings.delete_pin}
+                  onChange={(event) => updateField('delete_pin', event.target.value)} />
+              </label>
+            </div>
           </section>
 
           <div className="flex flex-wrap justify-end gap-2">

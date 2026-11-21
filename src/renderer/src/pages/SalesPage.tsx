@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type {
   InventoryProductRow, SaleDetail, SaleRow, SettingsRow, UdhaarCustomerRow
 } from '@shared/schemas'
 import { getReceiptSettings, receiptWidthMm } from '../utils/receipt-settings'
+import { getSelectedDate } from '../utils/selected-date'
 
-type CartLine = { productId: number; quantity: number }
+type CartLine =
+  | { productId: number; quantity: number }
 type SalesTab = 'new-sale' | 'history'
+type WorkStatus = 'PENDING' | 'COMPLETED'
 const inputClass = 'w-full border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-brand-500 focus:outline-none'
 const sectionClass = 'border border-gray-800 bg-gray-900/60 p-4'
 const labelClass = 'mb-1 block text-xs font-medium text-gray-400'
@@ -65,6 +68,7 @@ export default function SalesPage() {
   const [discount, setDiscount] = useState('0')
   const [receivedAmount, setReceivedAmount] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<typeof methods[number]>('CASH')
+  const [workStatus, setWorkStatus] = useState<WorkStatus>('COMPLETED')
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
   const [role, setRole] = useState('CASHIER')
   const [returnQuantities, setReturnQuantities] = useState<Record<number, string>>({})
@@ -75,7 +79,15 @@ export default function SalesPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-
+  const [quickCopies, setQuickCopies] = useState('1')
+  const [quickAmount, setQuickAmount] = useState('0')
+  const [quickDetails, setQuickDetails] = useState('')
+  const [walkInName, setWalkInName] = useState('')
+  const [walkInMobile, setWalkInMobile] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<SaleRow | null>(null)
+  const [deletePin, setDeletePin] = useState('')
+  const [deleteReason, setDeleteReason] = useState('')
+  const productPickerRef = useRef<HTMLDivElement>(null)
   const loadSales = useCallback(async () => {
     const result = await window.api.salesList(salesQuery)
     if (result.ok) setSales(result.data)
@@ -110,12 +122,24 @@ export default function SalesPage() {
     })
   }, [])
 
+  useEffect(() => {
+    if (!productPickerOpen) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !productPickerRef.current?.contains(event.target)) {
+        setProductPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [productPickerOpen])
+
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products])
   const filteredProducts = useMemo(() => {
     const search = productQuery.trim().toLocaleLowerCase()
     return products.filter((product) => product.name.toLocaleLowerCase().includes(search))
   }, [products, productQuery])
-  const subtotal = cart.reduce((sum, line) => sum + (productMap.get(line.productId)?.sale_price ?? 0) * line.quantity, 0)
+  const subtotal = cart.reduce((sum, line) =>
+    sum + (productMap.get(line.productId)?.sale_price ?? 0) * line.quantity, 0)
   const discountValue = Number(discount) || 0
   const total = Math.max(0, subtotal - discountValue)
   const received = receivedAmount === '' ? total : Number(receivedAmount)
@@ -126,25 +150,70 @@ export default function SalesPage() {
     setProductQuery('')
     setError(''); setNotice('')
     if (product.stock_qty < 1) { setError(`${product.name} is out of stock.`); return }
-    const line = cart.find((item) => item.productId === product.id)
+    const line = cart.find((item) => 'productId' in item && item.productId === product.id)
     if (line && line.quantity >= product.stock_qty) { setError(`Only ${product.stock_qty} ${product.name} in stock.`); return }
     if (line) setCart((current) => current.map((item) =>
-      item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item))
+      'productId' in item && item.productId === product.id
+        ? { ...item, quantity: item.quantity + 1 }
+        : item))
     else setCart((current) => [...current, { productId: product.id, quantity: 1 }])
   }
 
   const updateQuantity = (productId: number, quantity: number) => {
     const product = productMap.get(productId)
-    if (quantity < 1) { setCart((current) => current.filter((line) => line.productId !== productId)); return }
+    if (quantity < 1) { setCart((current) => current.filter((line) =>
+      !('productId' in line) || line.productId !== productId)); return }
     if (product && quantity > product.stock_qty) { setError(`Only ${product.stock_qty} ${product.name} in stock.`); return }
-    setCart((current) => current.map((line) => line.productId === productId ? { ...line, quantity } : line))
+    setCart((current) => current.map((line) =>
+      'productId' in line && line.productId === productId ? { ...line, quantity } : line))
+  }
+
+  const submitQuickPhotocopy = async () => {
+    const copyCount = Number(quickCopies)
+    const amount = Number(quickAmount)
+    if (!Number.isSafeInteger(copyCount) || copyCount < 1) {
+      setError('Copies quantity must be positive.')
+      return
+    }
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      setError('Quick Photocopy amount must be greater than zero.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    const result = await window.api.photocopyCreate({
+      idempotencyKey: crypto.randomUUID(),
+      entryDate: getSelectedDate(),
+      serviceType: 'MONO',
+      pageCount: copyCount,
+      copyCount: 1,
+      duplex: false,
+      unitPrice: amount,
+      customerName: quickDetails.trim() || 'Photocopy',
+      reference: getSelectedDate(),
+      paymentMethod: 'CASH'
+    })
+    setBusy(false)
+    if (!result.ok) { setError(result.error.message); return }
+    setNotice('Quick Photocopy saved.')
+    setQuickCopies('1')
+    setQuickAmount('0')
+    setQuickDetails('')
   }
 
   const submitSale = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError(''); setNotice('')
     const result = await window.api.salesCreate({
       idempotencyKey, customerId: selectedCustomerId ? Number(selectedCustomerId) : null,
+      customerName: selectedCustomerId
+        ? customers.find((customer) => customer.id === Number(selectedCustomerId))?.name
+        : walkInName.trim() || undefined,
+      mobile: selectedCustomerId
+        ? customers.find((customer) => customer.id === Number(selectedCustomerId))?.phone ?? undefined
+        : walkInMobile.trim() || undefined,
       discount: discountValue, receivedAmount: received, paymentMethod,
+      workStatus, entryDate: getSelectedDate(),
       items: cart.map((line) => ({ productId: line.productId, quantity: line.quantity }))
     })
     setBusy(false)
@@ -152,6 +221,7 @@ export default function SalesPage() {
     void printSale(result.data, setError)
     setNotice(`Sale ${result.data.invoice_no} saved.`)
     setCart([]); setSelectedCustomerId(''); setDiscount('0'); setReceivedAmount('')
+    setWorkStatus('COMPLETED')
     setIdempotencyKey(crypto.randomUUID())
     await Promise.all([loadSales(), window.api.inventoryProducts('', false).then((response) => {
       if (response.ok) setProducts(response.data)
@@ -167,6 +237,28 @@ export default function SalesPage() {
     setReturnReason('')
     setRefundMethod('CASH')
     setReturnKey(crypto.randomUUID())
+  }
+
+  const confirmDeleteSale = async () => {
+    if (!deleteTarget) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    const result = await window.api.salesDelete({
+      saleId: deleteTarget.id,
+      deletePin,
+      reason: deleteReason
+    })
+    setBusy(false)
+    if (!result.ok) {
+      setError(result.error.message)
+      return
+    }
+    setNotice(`Sale ${deleteTarget.invoice_no} deleted and stock restored.`)
+    setDeleteTarget(null)
+    setDeletePin('')
+    setDeleteReason('')
+    await loadSales()
   }
 
   const submitReturn = async (event: FormEvent) => {
@@ -191,8 +283,8 @@ export default function SalesPage() {
   return (
     <div className="p-6">
       <header className="mb-6">
-        <h1 className="text-xl font-bold text-gray-100">Normal Sales</h1>
-        <p className="mt-1 text-sm text-gray-500">Build a cart, collect payment, and save inventory and customer credit together.</p>
+        <h1 className="text-xl font-bold text-gray-100">Shop Sale</h1>
+        <p className="mt-1 text-sm text-gray-500">Build a combined bill, collect payment, and save inventory and customer credit together.</p>
       </header>
       {error && <div role="alert" className="mb-4 border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
       {notice && <div role="status" className="mb-4 border border-green-800 bg-green-950/30 px-4 py-3 text-sm text-green-300">{notice}</div>}
@@ -209,8 +301,25 @@ export default function SalesPage() {
       </div>
 
       {activeTab === 'new-sale' && <div className="mx-auto w-full max-w-4xl space-y-4">
+        <section className="border border-emerald-900/60 bg-emerald-950/20 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-emerald-300">Quick Photocopy Entry</h2>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <label><span className={labelClass}>Copies (Qty)</span><input type="number" min="1" value={quickCopies}
+              onChange={(event) => setQuickCopies(event.target.value)} className={inputClass} /></label>
+            <label><span className={labelClass}>Total (PKR)</span><input type="number" min="1" value={quickAmount}
+              onChange={(event) => setQuickAmount(event.target.value)} className={inputClass} /></label>
+            <label className="sm:col-span-2"><span className={labelClass}>Details</span><input value={quickDetails}
+              onChange={(event) => setQuickDetails(event.target.value)} placeholder="Urgent / PVC"
+              className={inputClass} /></label>
+          </div>
+          <button type="button" disabled={busy} onClick={() => void submitQuickPhotocopy()}
+            className="mt-3 bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50">
+            Quick Add
+          </button>
+        </section>
+
         <section className={sectionClass}>
-          <div className="relative">
+          <div ref={productPickerRef} className="relative">
             <span className="mb-1 block text-xs font-medium text-gray-400">Add product</span>
             <input value={productQuery} onFocus={() => setProductPickerOpen(true)}
               onChange={(event) => { setProductQuery(event.target.value); setProductPickerOpen(true) }}
@@ -238,7 +347,7 @@ export default function SalesPage() {
         <form onSubmit={(event) => void submitSale(event)} className={sectionClass}>
           <h2 className="mb-3 text-sm font-semibold text-gray-100">Current sale</h2>
           <div className="mb-3 max-h-56 overflow-y-auto divide-y divide-gray-800">
-            {cart.map((line) => {
+            {cart.map((line, index) => {
               const product = productMap.get(line.productId)
               if (!product) return null
               return <div key={line.productId} className="flex items-center justify-between gap-3 py-3">
@@ -266,6 +375,14 @@ export default function SalesPage() {
                 <option value="">Walk-in / no customer</option>{customers.map((customer) =>
                   <option key={customer.id} value={customer.id}>{customer.name}{customer.phone ? ` · ${customer.phone}` : ''}</option>)}
               </select>
+              {!selectedCustomerId && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <input value={walkInName} onChange={(event) => setWalkInName(event.target.value)}
+                    placeholder="Customer name (required for pending)" className={inputClass} />
+                  <input value={walkInMobile} onChange={(event) => setWalkInMobile(event.target.value)}
+                    placeholder="Mobile (optional)" className={inputClass} />
+                </div>
+              )}
             </label>
             <label><span className={labelClass}>Discount (PKR)</span><input type="number" min="0" max={subtotal} step="1" value={discount}
               onChange={(event) => setDiscount(event.target.value)} className={inputClass} /></label>
@@ -275,6 +392,12 @@ export default function SalesPage() {
             <label className="sm:col-span-2"><span className={labelClass}>Payment method</span><select value={paymentMethod}
               onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)} className={inputClass}>
               {methods.map((method) => <option key={method} value={method}>{method}</option>)}</select></label>
+            <label className="sm:col-span-2"><span className={labelClass}>Work Status</span>
+              <select value={workStatus} onChange={(event) => setWorkStatus(event.target.value as WorkStatus)} className={inputClass}>
+                <option value="COMPLETED">Work Completed</option>
+                <option value="PENDING">Work Pending</option>
+              </select>
+            </label>
           </div>
           <div className="mt-4 space-y-2 border-t border-gray-800 pt-3 text-sm">
             <div className="flex justify-between text-gray-400"><span>Subtotal</span><span>{money(subtotal)}</span></div>
@@ -303,11 +426,45 @@ export default function SalesPage() {
             <td className="px-2 py-3 text-gray-300">{sale.customer_name || 'Walk-in'}</td><td className="px-2 py-3 text-gray-200">{money(sale.total)}</td>
             <td className="px-2 py-3 text-gray-300">{money(sale.received_amount)}</td><td className="px-2 py-3 text-orange-300">{money(sale.balance)}</td>
             <td className="px-2 py-3 text-gray-400">{sale.status}</td><td className="px-2 py-3 text-right">
-              <button type="button" onClick={() => void openSale(sale.id)} className="text-brand-300 hover:text-brand-200">View / print</button>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => void openSale(sale.id)} className="text-brand-300 hover:text-brand-200">View / print</button>
+                {role !== 'CASHIER' && sale.status !== 'RETURNED' && (
+                  <button type="button" onClick={() => { setDeleteTarget(sale); setDeletePin(''); setDeleteReason('') }}
+                    className="text-red-300 hover:text-red-200">Delete</button>
+                )}
+              </div>
             </td></tr>)}
             {!sales.length && <tr><td colSpan={8} className="py-8 text-center text-gray-500">No sales recorded.</td></tr>}</tbody>
         </table></div>
       </section>}
+
+      {deleteTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <section role="dialog" aria-modal="true" aria-labelledby="delete-sale-title"
+          className="w-full max-w-md border border-red-900 bg-gray-900 p-5">
+          <h2 id="delete-sale-title" className="text-lg font-semibold text-red-300">Delete sale</h2>
+          <p className="mt-2 text-sm text-gray-300">
+            {deleteTarget.invoice_no} · {money(deleteTarget.total)} · {deleteTarget.customer_name || 'Walk-in'}
+          </p>
+          <p className="mt-2 text-xs text-orange-300">Confirming restores stock quantities and records the deletion in the audit log.</p>
+          <label className="mt-4 block"><span className={labelClass}>Delete PIN</span>
+            <input type="password" value={deletePin} onChange={(event) => setDeletePin(event.target.value)}
+              className={inputClass} maxLength={12} />
+          </label>
+          <label className="mt-3 block"><span className={labelClass}>Reason</span>
+            <input value={deleteReason} onChange={(event) => setDeleteReason(event.target.value)}
+              className={inputClass} maxLength={300} />
+          </label>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" disabled={busy} onClick={() => setDeleteTarget(null)}
+              className="border border-gray-700 px-4 py-2 text-sm text-gray-300">Cancel</button>
+            <button type="button" disabled={busy || deletePin.length < 4 || deleteReason.trim().length < 2}
+              onClick={() => void confirmDeleteSale()}
+              className="bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {busy ? 'Deleting…' : 'Confirm & delete'}
+            </button>
+          </div>
+        </section>
+      </div>}
 
       {selectedSale && <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-4" role="presentation"
         onClick={() => setSelectedSale(null)}>

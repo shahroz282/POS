@@ -14,12 +14,7 @@ export class ReportsRepository {
       SELECT COUNT(*) AS count,
         COALESCE(SUM(total), 0) AS gross,
         COALESCE(SUM(discount), 0) AS discount,
-        COALESCE((SELECT SUM(p.amount) FROM payments p
-          WHERE p.sale_id IS NOT NULL AND date(p.paid_at) BETWEEN ? AND ? AND p.method = 'CASH'), 0) AS cash,
-        COALESCE((SELECT SUM(p.amount) FROM payments p
-          WHERE p.sale_id IS NOT NULL AND date(p.paid_at) BETWEEN ? AND ? AND p.method != 'CASH'), 0) AS noncash,
-        COALESCE((SELECT SUM(r.refund_amount) FROM sale_returns r
-          WHERE date(r.created_at) BETWEEN ? AND ?), 0) AS refunds,
+        0 AS cash, 0 AS noncash, 0 AS refunds,
         COALESCE(SUM(MAX(0, total - received_amount
           - COALESCE((SELECT SUM(a.amount) FROM udhaar_sale_allocations a WHERE a.sale_id = sales.id), 0)
           - COALESCE((SELECT SUM(u.amount) FROM udhaar_entries u
@@ -28,10 +23,24 @@ export class ReportsRepository {
           COALESCE((SELECT SUM(ri.quantity) FROM sale_return_items ri WHERE ri.sale_item_id = si.id), 0))
           * si.unit_cost) FROM sale_items si WHERE si.sale_id = sales.id)), 0) AS cost
       FROM sales WHERE date(created_at) BETWEEN ? AND ?
-    `).get(fromDate, toDate, fromDate, toDate, fromDate, toDate, fromDate, toDate) as {
+    `).get(fromDate, toDate) as {
       count: number; gross: number; discount: number; cash: number; noncash: number
       refunds: number; outstanding: number; cost: number
     }
+    sales.cash = this.sum(`
+      SELECT COALESCE(SUM(p.amount), 0) AS amount FROM payments p JOIN sales s ON s.id = p.sale_id
+      WHERE p.sale_id IS NOT NULL AND s.status != 'RETURNED'
+        AND p.method = 'CASH' AND date(p.paid_at) BETWEEN ? AND ?
+    `, fromDate, toDate)
+    sales.noncash = this.sum(`
+      SELECT COALESCE(SUM(p.amount), 0) AS amount FROM payments p JOIN sales s ON s.id = p.sale_id
+      WHERE p.sale_id IS NOT NULL AND s.status != 'RETURNED'
+        AND p.method != 'CASH' AND date(p.paid_at) BETWEEN ? AND ?
+    `, fromDate, toDate)
+    sales.refunds = this.sum(`
+      SELECT COALESCE(SUM(r.refund_amount), 0) AS amount FROM sale_returns r
+      WHERE date(r.created_at) BETWEEN ? AND ?
+    `, fromDate, toDate)
 
     const salesModule = {
       key: 'sales' as const, label: 'Normal Sales', transactionCount: sales.count,
@@ -73,6 +82,17 @@ export class ReportsRepository {
       outstanding: 0,
       note: 'Cash in/out and cash-paid expenses for this period.'
     })
+    modules.push({
+      key: 'digital',
+      label: 'Digital Accounts',
+      transactionCount: 0,
+      grossAmount: 0,
+      cashReceived: 0,
+      nonCashReceived: 0,
+      refunds: 0,
+      outstanding: 0,
+      note: 'EasyPaisa, JazzCash, and Bank receipts derived from sales and stamp payments.'
+    })
 
     const stock = this.db.prepare(`
       SELECT COUNT(*) AS product_count,
@@ -97,6 +117,74 @@ export class ReportsRepository {
       SELECT (SELECT COUNT(*) FROM cash_entries WHERE entry_date BETWEEN ? AND ?) +
         (SELECT COUNT(*) FROM expenses WHERE expense_date BETWEEN ? AND ? AND method = 'CASH') AS count
     `).get(fromDate, toDate, fromDate, toDate) as { count: number }
+    const digitalSales = this.sum(
+      `SELECT COALESCE(SUM(p.amount), 0) AS amount FROM payments p
+       JOIN sales s ON s.id = p.sale_id
+       WHERE p.sale_id IS NOT NULL AND s.status != 'RETURNED'
+       AND p.method IN ('BANK','EASYPAISA','JAZZCASH')
+       AND date(p.paid_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalSaleRefunds = this.sum(
+      `SELECT COALESCE(SUM(r.refund_amount), 0) AS amount FROM sale_returns r
+       JOIN sales s ON s.id = r.sale_id
+       WHERE r.refund_method IN ('BANK','EASYPAISA','JAZZCASH')
+       AND date(r.created_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalStamp = this.sum(
+      `SELECT COALESCE(SUM(p.amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_payments p
+       JOIN stamp_paper_sales s ON s.id = p.sale_id
+       WHERE s.status != 'CANCELLED'
+       AND p.method IN ('BANK','EASYPAISA','JAZZCASH') AND date(p.paid_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    ) + this.sum(
+      `SELECT COALESCE(SUM(p.amount_paisa), 0) / 100.0 AS amount FROM stamp_transaction_payments p
+       JOIN stamp_paper_transactions s ON s.id = p.stamp_id
+       WHERE s.status != 'CANCELLED'
+       AND p.method IN ('BANK','EASYPAISA','JAZZCASH') AND date(p.paid_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalStampRefunds = this.sum(
+      `SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM stamp_paper_refunds
+       WHERE method IN ('BANK','EASYPAISA','JAZZCASH') AND date(created_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    ) + this.sum(
+      `SELECT COALESCE(SUM(amount_paisa), 0) / 100.0 AS amount FROM simple_stamp_refunds
+       WHERE method IN ('BANK','EASYPAISA','JAZZCASH') AND date(created_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalPhotocopy = this.sum(
+      `SELECT COALESCE(SUM(p.amount), 0) AS amount FROM photocopy_payments p
+       JOIN photocopy_sales s ON s.id = p.sale_id
+       WHERE s.status != 'CANCELLED'
+       AND p.method IN ('BANK','EASYPAISA','JAZZCASH') AND date(p.paid_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalPhotocopyRefunds = this.sum(
+      `SELECT COALESCE(SUM(amount), 0) AS amount FROM photocopy_refunds
+       WHERE method IN ('BANK','EASYPAISA','JAZZCASH') AND date(created_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
+    const digitalOtherReceipts = this.sum(
+      `SELECT COALESCE(SUM(amount), 0) AS amount FROM payments
+       WHERE sale_id IS NULL
+       AND method IN ('BANK','EASYPAISA','JAZZCASH')
+       AND date(paid_at) BETWEEN ? AND ?`,
+      fromDate, toDate
+    ) + this.sum(
+      `SELECT COALESCE(SUM(amount), 0) AS amount FROM udhaar_entries
+       WHERE type = 'REPAYMENT'
+       AND method IN ('BANK','EASYPAISA','JAZZCASH')
+       AND entry_date BETWEEN ? AND ?`,
+      fromDate, toDate
+    ) + this.sum(
+      `SELECT COALESCE(SUM(amount), 0) AS amount FROM filer_customer_payments
+       WHERE entry_type = 'RECEIVED'
+       AND method IN ('BANK','EASYPAISA','JAZZCASH')
+       AND payment_date BETWEEN ? AND ?`,
+      fromDate, toDate
+    )
 
     const inventoryModule = modules.find((module) => module.key === 'inventory')!
     inventoryModule.transactionCount = purchases.count
@@ -107,6 +195,13 @@ export class ReportsRepository {
     cashModule.cashReceived = cashIn
     cashModule.grossAmount = cashOut + cashExpenses
     cashModule.refunds = base.cash.cashRefunds
+    const digitalModule = modules.find((module) => module.key === 'digital')!
+    const digitalTotal = Math.max(0,
+      digitalSales + digitalStamp + digitalPhotocopy + digitalOtherReceipts
+      - digitalSaleRefunds - digitalStampRefunds - digitalPhotocopyRefunds
+    )
+    digitalModule.grossAmount = digitalTotal
+    digitalModule.nonCashReceived = digitalTotal
 
     return {
       fromDate, toDate, role, modules,
@@ -124,7 +219,10 @@ export class ReportsRepository {
     }
   }
 
-  private sum(sql: string, fromDate: string, toDate: string, type: string): number {
-    return (this.db.prepare(sql).get(fromDate, toDate, type) as { amount: number }).amount
+  private sum(sql: string, fromDate: string, toDate: string, type?: string): number {
+    const row = type === undefined
+      ? this.db.prepare(sql).get(fromDate, toDate)
+      : this.db.prepare(sql).get(fromDate, toDate, type)
+    return (row as { amount: number }).amount
   }
 }

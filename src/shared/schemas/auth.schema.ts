@@ -72,13 +72,17 @@ export type UserRow = z.infer<typeof UserRowSchema>
 export const UpdateSettingsInputSchema = z.object({
   shop_name: z.string().trim().min(1).max(200).optional(),
   receipt_width_mm: z.number().int().min(40).max(120).optional(),
-  max_cashier_discount_percent: z.number().int().min(0).max(100).optional()
+  max_cashier_discount_percent: z.number().int().min(0).max(100).optional(),
+  login_pin: z.string().trim().regex(/^\d{4,12}$/).optional(),
+  delete_pin: z.string().trim().regex(/^\d{4,12}$/).optional()
 })
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsInputSchema>
 
 export const SettingsRowSchema = z.object({
   shop_name: z.string(),
   receipt_width_mm: z.string(),
-  max_cashier_discount_percent: z.string()
+  max_cashier_discount_percent: z.string(),
+  login_pin: z.string().optional(),
+  delete_pin: z.string().optional()
 })
 export type SettingsRow = z.infer<typeof SettingsRowSchema>
