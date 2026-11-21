@@ -206,7 +206,7 @@ export interface WindowApi {
   dailyClosingClose: (input: DailyClosingClose) => Promise<IpcResult<null>>
   dailyClosingUnlock: (date: string) => Promise<IpcResult<null>>
   reportsLoad: (range: ReportsRange) => Promise<IpcResult<ReportsReport>>
-  dashboardDailySummary: (date: string) => Promise<IpcResult<DashboardDailySummary[]>>
+  dashboardDailySummary: (date: string) => Promise<IpcResult<DashboardDailySummary>>
   reportsExportExcel: (content: Uint8Array) => Promise<IpcResult<{ saved: boolean }>>
   photocopyCreate: (input: PhotocopyCreate) => Promise<IpcResult<PhotocopySaleRow>>
   photocopyList: (input?: Partial<PhotocopySearch>) => Promise<IpcResult<PhotocopySaleRow[]>>

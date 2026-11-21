@@ -72,8 +72,25 @@ export type DailyClosingModule = {
   refunds: number
   outstanding: number
 }
-export type DashboardDailySummary = Pick<DailyClosingModule,
-  'key' | 'transactionCount' | 'grossAmount' | 'cashReceived' | 'nonCashReceived' | 'refunds' | 'outstanding'>
+export type DashboardDailySummary = {
+  modules: Array<Pick<DailyClosingModule,
+    'key' | 'transactionCount' | 'grossAmount' | 'cashReceived' | 'nonCashReceived' | 'refunds' | 'outstanding'>>
+  cashCalculation: {
+    openingCash: number
+    sectionReceipts: Array<{
+      key: Exclude<DailyClosingModule['key'], 'udhaar'>
+      label: string
+      cashReceived: number
+    }>
+    udhaarCashRepayments: number
+    filerCashReceiptsExcluded: number
+    cashIn: number
+    cashOut: number
+    cashExpenses: number
+    cashRefunds: number
+    currentBalance: number
+  }
+}
 export type DailyClosingReport = {
   fromDate: string
   toDate: string

@@ -25,12 +25,7 @@ export function registerReportsHandlers(): void {
     const parsed = DailyClosingDateSchema.safeParse(rawDate)
     if (!parsed.success) return { ok: false, error: { code: 'DASHBOARD_ERROR', message: parsed.error.message } }
     try {
-      const modules = new DailyClosingRepository(getDb()).report(parsed.data).modules
-        .filter((module) => module.key === 'stampPaper' || module.key === 'photocopy')
-        .map(({ key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding }) => ({
-          key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding
-        }))
-      return { ok: true, data: modules }
+      return { ok: true, data: new DailyClosingRepository(getDb()).dashboardSummary(parsed.data) }
     } catch (error) {
       return { ok: false, error: { code: 'DASHBOARD_ERROR', message: error instanceof Error ? error.message : 'Dashboard summary failed' } }
     }

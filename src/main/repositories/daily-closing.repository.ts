@@ -1,5 +1,6 @@
 import type {
-  CashEntryCreate, CashEntryRow, DailyClosingExpenseCreate, DailyClosingExpenseRow, DailyClosingModule, DailyClosingReport
+  CashEntryCreate, CashEntryRow, DailyClosingExpenseCreate, DailyClosingExpenseRow, DailyClosingModule,
+  DailyClosingReport, DashboardDailySummary
 } from '@shared/schemas'
 import type { DB } from '../db/db'
 
@@ -132,6 +133,32 @@ export class DailyClosingRepository {
         cashReceipts, filerCashReceipts, cashIn, cashOut, cashExpenses, cashRefunds, expectedCash,
         actualCash: closing?.actual_cash ?? null,
         difference: closing?.difference ?? null
+      }
+    }
+  }
+
+  dashboardSummary(date: string): DashboardDailySummary {
+    const report = this.report(date)
+    const sectionModules = report.modules.filter(
+      (module): module is DailyClosingModule & { key: Exclude<DailyClosingModule['key'], 'udhaar'> } =>
+        module.key !== 'udhaar'
+    )
+    return {
+      modules: report.modules
+        .filter((module) => module.key === 'stampPaper' || module.key === 'photocopy')
+        .map(({ key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding }) => ({
+          key, transactionCount, grossAmount, cashReceived, nonCashReceived, refunds, outstanding
+        })),
+      cashCalculation: {
+        openingCash: report.cash.openingCash,
+        sectionReceipts: sectionModules.map(({ key, label, cashReceived }) => ({ key, label, cashReceived })),
+        udhaarCashRepayments: report.modules.find((module) => module.key === 'udhaar')?.cashReceived ?? 0,
+        filerCashReceiptsExcluded: report.cash.filerCashReceipts,
+        cashIn: report.cash.cashIn,
+        cashOut: report.cash.cashOut,
+        cashExpenses: report.cash.cashExpenses,
+        cashRefunds: report.cash.cashRefunds,
+        currentBalance: report.cash.expectedCash - report.cash.filerCashReceipts
       }
     }
   }

@@ -2,6 +2,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { DB } from '../src/main/db/db'
 import { runMigrations } from '../src/main/db/migrate'
+import { DailyClosingRepository } from '../src/main/repositories/daily-closing.repository'
 import { DailyClosingService } from '../src/main/services/daily-closing.service'
 
 const reportDate = '2025-01-02'
@@ -103,11 +104,16 @@ describe('DailyClosingService', () => {
     `).run(applicationId, `${reportDate} 10:00:00`, userId,
       applicationId, `${reportDate} 10:00:00`, userId)
 
-    raw.prepare(`
+    const filerId = Number(raw.prepare(`
       INSERT INTO filer_customers
         (customer_name, cnic, filing_date, category, total_fee, advance_paid, created_by, created_at)
       VALUES ('Filer', '456', ?, 'FRESH_FILER', 150, 30, ?, ?)
-    `).run(reportDate, userId, `${reportDate} 10:00:00`)
+    `).run(reportDate, userId, `${reportDate} 10:00:00`).lastInsertRowid)
+    raw.prepare(`
+      INSERT INTO filer_customer_payments
+        (customer_id, idempotency_key, entry_type, amount, method, payment_date, created_by)
+      VALUES (?, 'FILER-CASH-1', 'RECEIVED', 40, 'CASH', ?, ?)
+    `).run(filerId, reportDate, userId)
     const customerId = Number(raw.prepare("INSERT INTO customers (name) VALUES ('Udhaar')").run().lastInsertRowid)
     raw.prepare(`
       INSERT INTO udhaar_entries (customer_id, type, amount, method, entry_date, created_by)
@@ -142,6 +148,7 @@ describe('DailyClosingService', () => {
       VALUES (?, 'STAMP-OLD-REC', 2000, 'CASH', ?, ?)
     `).run(oldStampId, userId, `${reportDate} 12:00:00`)
 
+    service.save(reportDate, 100, userId)
     const report = service.report(reportDate)
     expect(report.modules.map(({ key, transactionCount }) => [key, transactionCount])).toEqual([
       ['sales', 1], ['stampPaper', 1], ['admissions', 1], ['schemes', 1], ['udhaar', 2], ['photocopy', 0]
@@ -154,9 +161,28 @@ describe('DailyClosingService', () => {
     })
     expect(report.modules.some(({ key }) => key === 'filerCustomers')).toBe(false)
     expect(report.cash).toMatchObject({
-      openingCash: 0, cashReceipts: 355, cashIn: 45, cashOut: 5,
-      cashExpenses: 10, cashRefunds: 7, expectedCash: 378
+      openingCash: 100, cashReceipts: 355, filerCashReceipts: 40, cashIn: 45, cashOut: 5,
+      cashExpenses: 10, cashRefunds: 7, expectedCash: 518
     })
+    const dashboardSummary = new DailyClosingRepository(db).dashboardSummary(reportDate)
+    expect(dashboardSummary.cashCalculation).toMatchObject({
+      openingCash: 100,
+      sectionReceipts: [
+        { key: 'sales', cashReceived: 60 },
+        { key: 'stampPaper', cashReceived: 145 },
+        { key: 'admissions', cashReceived: 50 },
+        { key: 'schemes', cashReceived: 100 },
+        { key: 'photocopy', cashReceived: 0 }
+      ],
+      udhaarCashRepayments: 25,
+      filerCashReceiptsExcluded: 40,
+      cashIn: 45,
+      cashOut: 5,
+      cashExpenses: 10,
+      cashRefunds: 7,
+      currentBalance: 478
+    })
+    expect(dashboardSummary.modules.map(({ key }) => key)).toEqual(['stampPaper', 'photocopy'])
 
     raw.prepare(`
       INSERT INTO sales (invoice_no, subtotal, total, received_amount, created_by, created_at)
@@ -171,13 +197,13 @@ describe('DailyClosingService', () => {
       transactionCount: 2, grossAmount: 175, cashReceived: 60, nonCashReceived: 75
     })
     expect(rangeReport.cash).toMatchObject({
-      cashReceipts: 355, cashIn: 45, expectedCash: 378
+      cashReceipts: 355, filerCashReceipts: 40, cashIn: 45, expectedCash: 518
     })
     expect(rangeReport.closing).toBeNull()
 
     service.close(reportDate, 100, 450, userId)
     expect(service.report(reportDate).closing).toMatchObject({
-      openingCash: 100, expectedCash: 478, actualCash: 450, difference: -28, isLocked: true
+      openingCash: 100, expectedCash: 518, actualCash: 450, difference: -68, isLocked: true
     })
     expect(() => service.save(reportDate, 200, userId)).toThrow('locked')
     service.unlock(reportDate, userId)
